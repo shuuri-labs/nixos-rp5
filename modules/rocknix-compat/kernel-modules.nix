@@ -32,8 +32,8 @@
     # We chain-boot from ROCKNIX, so we don't need NixOS to manage boot
     boot.isContainer = true;
 
-    # Override the container check for systemd (we're not actually a container)
-    boot.enableContainers = lib.mkDefault true;
+    # Provide stub for initialRamdisk that the system builder expects
+    system.build.initialRamdisk = pkgs.runCommand "dummy-initrd" {} "mkdir -p $out; touch $out/initrd";
 
     # Still set these for documentation purposes
     boot.loader = {
