@@ -30,23 +30,15 @@
   config = lib.mkIf (config.rp5.rocknix.enable or true) {
     # Boot configuration for ROCKNIX kernel
     boot = {
-      # Don't try to build our own kernel - we use ROCKNIX's
-      # kernelPackages is set to a minimal config that won't build a kernel
-      kernelPackages = lib.mkForce (pkgs.linuxPackagesFor (pkgs.linux.override {
-        # Minimal kernel config - this won't actually be used
-        # We just need something to satisfy NixOS's requirements
-        autoModules = false;
-        extraConfig = "";
-      }));
+      # We use ROCKNIX's kernel, but let NixOS build a minimal initrd
+      # (it won't actually be used since we chain-boot from ROCKNIX)
 
-      # We don't use NixOS initrd - booting via ROCKNIX switch_root
+      # Minimal initrd - won't be used but satisfies NixOS requirements
       initrd = {
-        enable = lib.mkForce false;
-        systemd.enable = lib.mkForce false;
+        # Include minimal modules in case initrd is somehow used
+        availableKernelModules = [ ];
+        kernelModules = [ ];
       };
-
-      # Disable stage-1 systemd
-      initrd.verbose = false;
 
       # No bootloader - ROCKNIX handles this
       loader = {
