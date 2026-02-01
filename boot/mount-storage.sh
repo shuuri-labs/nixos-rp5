@@ -18,11 +18,28 @@
 # Configuration
 # -----------------------------------------------------------------------------
 BTN_SELECT=314                              # SELECT button key code
-NIXOS_PARTITION="LABEL=NIXOSROOT"           # NixOS root partition identifier
 NIXOS_BOOT_FLAG="/storage/.boot-nixos"      # Persistent boot flag
 BOOT_COUNTER="/storage/.nixos-boot-attempts"
 MAX_BOOT_ATTEMPTS=3
 DEBUG_MODE=0                                # Set to 1 for verbose logging
+
+# -----------------------------------------------------------------------------
+# Boot Mode Configuration
+# -----------------------------------------------------------------------------
+# IMAGE mode (recommended): NixOS lives in an image file on STORAGE partition
+#   - No partition resizing needed
+#   - ROCKNIX stays completely stock
+#   - Set NIXOS_BOOT_MODE="image" and NIXOS_IMAGE_PATH="/storage/nixos.img"
+#
+# PARTITION mode (legacy): NixOS lives on a separate partition
+#   - Requires resizing STORAGE partition
+#   - May cause ROCKNIX read-only issues
+#   - Set NIXOS_BOOT_MODE="partition" and NIXOS_PARTITION="LABEL=NIXOSROOT"
+# -----------------------------------------------------------------------------
+NIXOS_BOOT_MODE="image"                     # "image" or "partition"
+NIXOS_IMAGE_PATH="/storage/nixos.img"       # Path to NixOS image (for image mode)
+NIXOS_IMAGE_SIZE="64G"                      # Size of image to create if missing
+NIXOS_PARTITION="LABEL=NIXOSROOT"           # Partition identifier (for partition mode)
 
 # -----------------------------------------------------------------------------
 # Logging helpers
@@ -218,40 +235,120 @@ resolve_partition() {
 }
 
 # -----------------------------------------------------------------------------
+# setup_loop_device - Set up loop device for image file
+# Returns the loop device path on stdout
+# -----------------------------------------------------------------------------
+setup_loop_device() {
+    local image_path="$1"
+    local loop_dev
+
+    # Check if image exists
+    if [ ! -f "$image_path" ]; then
+        log_error "NixOS image not found: $image_path"
+        return 1
+    fi
+
+    # Find a free loop device and set it up
+    loop_dev=$(losetup -f 2>/dev/null)
+    if [ -z "$loop_dev" ]; then
+        log_error "No free loop device available"
+        return 1
+    fi
+
+    log "Setting up loop device $loop_dev for $image_path"
+    if ! losetup "$loop_dev" "$image_path"; then
+        log_error "Failed to set up loop device"
+        return 1
+    fi
+
+    echo "$loop_dev"
+    return 0
+}
+
+# -----------------------------------------------------------------------------
+# mount_nixos_root - Mount NixOS root filesystem
+# Handles both image and partition modes
+# Sets NIXOS_ROOT_DEV to the device used
+# -----------------------------------------------------------------------------
+mount_nixos_root() {
+    local nixroot="$1"
+
+    if [ "$NIXOS_BOOT_MODE" = "image" ]; then
+        # Image mode: loop-mount from STORAGE
+        log "Boot mode: IMAGE ($NIXOS_IMAGE_PATH)"
+
+        # First ensure STORAGE is mounted
+        if ! mountpoint -q /storage 2>/dev/null; then
+            log "Mounting STORAGE partition first..."
+            mkdir -p /storage
+            if ! mount /dev/disk/by-label/STORAGE /storage -o rw,noatime; then
+                log_error "Failed to mount STORAGE partition"
+                return 1
+            fi
+        fi
+
+        # Set up loop device for the image
+        NIXOS_ROOT_DEV=$(setup_loop_device "$NIXOS_IMAGE_PATH")
+        if [ -z "$NIXOS_ROOT_DEV" ]; then
+            return 1
+        fi
+
+        # Mount the loop device
+        log "Mounting NixOS image..."
+        if ! mount -t ext4 -o rw,noatime,nodiratime "$NIXOS_ROOT_DEV" "$nixroot"; then
+            log_error "Failed to mount NixOS image"
+            losetup -d "$NIXOS_ROOT_DEV"
+            return 1
+        fi
+
+    else
+        # Partition mode: mount partition directly
+        log "Boot mode: PARTITION ($NIXOS_PARTITION)"
+
+        NIXOS_ROOT_DEV=$(resolve_partition "$NIXOS_PARTITION")
+        if [ ! -b "$NIXOS_ROOT_DEV" ]; then
+            log_error "NixOS partition not found: $NIXOS_PARTITION"
+            log_error "Expected device: $NIXOS_ROOT_DEV"
+            return 1
+        fi
+
+        log "Found NixOS partition: $NIXOS_ROOT_DEV"
+
+        # Mount NixOS root partition
+        log "Mounting NixOS root filesystem..."
+        if ! mount -t ext4 -o rw,noatime,nodiratime "$NIXOS_ROOT_DEV" "$nixroot"; then
+            log_error "Failed to mount NixOS root partition"
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
+# -----------------------------------------------------------------------------
 # boot_nixos - Main NixOS boot sequence
 # -----------------------------------------------------------------------------
 boot_nixos() {
     local nixroot="/nixroot"
     local kver
     local nixos_init
-    local partition_dev
 
     log "Starting NixOS chain-boot sequence..."
-
-    # Resolve partition device
-    partition_dev=$(resolve_partition "$NIXOS_PARTITION")
-    if [ ! -b "$partition_dev" ]; then
-        log_error "NixOS partition not found: $NIXOS_PARTITION"
-        log_error "Expected device: $partition_dev"
-        return 1
-    fi
-
-    log "Found NixOS partition: $partition_dev"
 
     # Create mount point
     mkdir -p "$nixroot"
 
-    # Mount NixOS root partition
-    log "Mounting NixOS root filesystem..."
-    if ! mount -t ext4 -o rw,noatime,nodiratime "$partition_dev" "$nixroot"; then
-        log_error "Failed to mount NixOS root partition"
+    # Mount NixOS root (handles both image and partition modes)
+    if ! mount_nixos_root "$nixroot"; then
+        log_error "Failed to mount NixOS root"
         return 1
     fi
 
     # Verify it looks like a NixOS root
     if [ ! -d "$nixroot/nix" ]; then
-        log_error "Mounted partition does not appear to be NixOS (missing /nix)"
+        log_error "Mounted filesystem does not appear to be NixOS (missing /nix)"
         umount "$nixroot"
+        [ -n "$NIXOS_ROOT_DEV" ] && losetup -d "$NIXOS_ROOT_DEV" 2>/dev/null
         return 1
     fi
 
@@ -323,12 +420,24 @@ boot_nixos() {
         log_error "Firmware not found at expected path"
     fi
 
-    # Mount storage partition into NixOS if available
-    if [ -b "/dev/disk/by-label/STORAGE" ]; then
-        mkdir -p "$nixroot/rocknix/storage"
-        mount /dev/disk/by-label/STORAGE "$nixroot/rocknix/storage" -o rw,noatime || {
-            log_error "Failed to mount STORAGE partition"
-        }
+    # Mount/move storage partition into NixOS
+    mkdir -p "$nixroot/rocknix/storage"
+    if [ "$NIXOS_BOOT_MODE" = "image" ]; then
+        # Image mode: STORAGE is already mounted at /storage, move it
+        if mountpoint -q /storage 2>/dev/null; then
+            mount --move /storage "$nixroot/rocknix/storage" || {
+                log_error "Failed to move /storage"
+                # Try bind mount as fallback
+                mount --bind /storage "$nixroot/rocknix/storage"
+            }
+        fi
+    else
+        # Partition mode: mount STORAGE if available
+        if [ -b "/dev/disk/by-label/STORAGE" ]; then
+            mount /dev/disk/by-label/STORAGE "$nixroot/rocknix/storage" -o rw,noatime || {
+                log_error "Failed to mount STORAGE partition"
+            }
+        fi
     fi
 
     # Move virtual filesystems to new root

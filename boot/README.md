@@ -56,7 +56,11 @@ Check boot triggers ──→ No trigger ──→ Continue ROCKNIX boot
      ↓ (trigger found)
 Check boot failsafe
      ↓
-Mount NIXOSROOT partition
+┌─────────────────────────────────────────────────────────┐
+│ IMAGE MODE:                │ PARTITION MODE:            │
+│  Mount STORAGE partition   │  Mount NIXOSROOT partition │
+│  Loop-mount nixos.img      │                            │
+└─────────────────────────────────────────────────────────┘
      ↓
 Verify it's a NixOS root (/nix exists)
      ↓
@@ -70,7 +74,7 @@ Bind-mount kernel modules:
 Bind-mount firmware:
   ROCKNIX/lib/firmware → NixOS/lib/firmware
      ↓
-Mount STORAGE partition (if exists)
+Move STORAGE into NixOS (/nixroot/rocknix/storage)
      ↓
 Move virtual filesystems (/dev, /proc, /sys, /run)
      ↓
@@ -90,12 +94,27 @@ Protects against boot loops:
 3. Counter is stored on ROCKNIX storage partition
 4. Clear counter to retry: `rm /storage/.nixos-boot-attempts`
 
+### Boot Modes
+
+The script supports two boot modes:
+
+| Mode | Description | Pros | Cons |
+|------|-------------|------|------|
+| `image` | NixOS in image file on STORAGE | No partition changes, ROCKNIX stays stock | Slightly slower I/O |
+| `partition` | NixOS on separate partition | Native speed | Requires partition resize, may cause issues |
+
+**Image mode (recommended):** NixOS lives in `/storage/nixos.img`. No partition modifications needed.
+
+**Partition mode:** NixOS lives on a separate `NIXOSROOT` partition. Requires shrinking STORAGE.
+
 ### Configuration Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BTN_SELECT` | 314 | SELECT button keycode |
-| `NIXOS_PARTITION` | LABEL=NIXOSROOT | NixOS partition identifier |
+| `NIXOS_BOOT_MODE` | image | Boot mode: "image" or "partition" |
+| `NIXOS_IMAGE_PATH` | /storage/nixos.img | Path to NixOS image (image mode) |
+| `NIXOS_PARTITION` | LABEL=NIXOSROOT | NixOS partition identifier (partition mode) |
 | `MAX_BOOT_ATTEMPTS` | 3 | Failsafe threshold |
 | `DEBUG_MODE` | 0 | Enable verbose logging |
 
