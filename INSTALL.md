@@ -23,6 +23,8 @@ You need three partitions:
 
 ROCKNIX expands STORAGE to fill the card on first boot. You need to shrink it.
 
+**⚠️ CRITICAL: Always shrink the filesystem SMALLER than your target partition size BEFORE shrinking the partition. Failure to do this causes filesystem corruption.**
+
 **Option A: From Linux machine**
 
 ```bash
@@ -36,27 +38,48 @@ lsblk
 # Check current layout
 sudo parted /dev/sdX print
 
-# Shrink the ext4 filesystem first (adjust 417G based on your card size)
-# Formula: (total card size) - 2GB (boot) - 64GB (nixos) = STORAGE size
-sudo e2fsck -f /dev/sdX2
-sudo resize2fs /dev/sdX2 417G
+# =================================================================
+# STEP 1: Shrink filesystem FIRST (to LESS than target partition)
+# =================================================================
+# For a 512GB card wanting 64GB for NixOS:
+#   Target STORAGE partition: ~400GB
+#   Shrink filesystem to: 350GB (50GB buffer for safety)
+#
+# Formula: (total card size) - 2GB (boot) - 64GB (nixos) - 50GB (buffer) = filesystem size
 
-# Resize partition and create NIXOSROOT
+sudo e2fsck -f /dev/sdX2
+sudo resize2fs /dev/sdX2 350G
+
+# Verify filesystem shrink succeeded
+sudo e2fsck -f /dev/sdX2
+
+# =================================================================
+# STEP 2: Shrink partition (to MORE than the filesystem)
+# =================================================================
 sudo parted /dev/sdX
 # In parted:
 print
-resizepart 2 419GB
-mkpart primary ext4 419GB -1
+resizepart 2 400GB
 print
 quit
+
+# =================================================================
+# STEP 3: Create NIXOSROOT partition
+# =================================================================
+sudo parted /dev/sdX mkpart primary ext4 400GB 100%
 
 # Format new partition
 sudo mkfs.ext4 -L NIXOSROOT /dev/sdX3
 
-# Expand STORAGE filesystem to fill resized partition
+# =================================================================
+# STEP 4: Expand STORAGE filesystem to fill its partition
+# =================================================================
 sudo resize2fs /dev/sdX2
 
-# Verify
+# Final verification
+sudo e2fsck -f /dev/sdX2
+sudo e2fsck -f /dev/sdX3
+sudo parted /dev/sdX print
 sudo blkid /dev/sdX*
 ```
 
@@ -253,3 +276,27 @@ SD Card (512GB example)
 ### Partition not recognized
 - Ensure partition has correct label: `e2label /dev/sdX3 NIXOSROOT`
 - Check boot script expects `LABEL=NIXOSROOT`
+
+### Filesystem corruption after resize
+If you see "filesystem size doesn't match partition size" errors:
+
+```bash
+# This happens when partition was shrunk before filesystem was small enough
+
+# Option 1: Expand partition to fit filesystem, then redo properly
+sudo parted /dev/sdX rm 3                    # Remove NIXOSROOT
+sudo parted /dev/sdX resizepart 2 100%       # Expand STORAGE to full disk
+sudo e2fsck -f /dev/sdX2                     # Now fsck should work
+sudo resize2fs /dev/sdX2 350G                # Shrink filesystem properly
+# Then redo partition steps above
+
+# Option 2: Force repair (may lose data at end of filesystem)
+sudo e2fsck -fy /dev/sdX2
+```
+
+### ROCKNIX boots with read-only storage
+If ROCKNIX shows `/storage` as read-only:
+- The STORAGE filesystem may have errors
+- Run `sudo e2fsck -fy /dev/sdX2` from Linux
+- Ensure label is exactly "STORAGE": `sudo e2label /dev/sdX2 STORAGE`
+- As last resort, reformat: `sudo mkfs.ext4 -L STORAGE /dev/sdX2`

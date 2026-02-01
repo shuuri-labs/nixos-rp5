@@ -145,7 +145,46 @@ This document tracks the implementation progress and to-do items for the NixOS R
 
 ## Known Issues
 
-*No known issues yet - testing on hardware pending.*
+### ROCKNIX /storage Read-Only After Partition Resize
+
+**Status:** Investigating
+
+**Symptoms:**
+After resizing the STORAGE partition to make room for NIXOSROOT, ROCKNIX boots with `/storage` mounted read-only, causing cascading failures:
+
+```
+Failed to start storage-log.service
+Dependency failed for var-log.mount
+Dependency failed for systemd-update-utmp.service
+Dependency failed for systemd-update-utmp-runlevel.service
+Dependency failed for systemd-journal-flush.service
+Failed to start swap.service
+userconfig-setup[455]: mkdir: can't create directory '/storage/.config/': Read-only file system
+Failed to mount tmp-cores.mount
+Failed to mount tmp-database.mount
+Failed to mount tmp-joypads.mount
+Failed to mount tmp-overlays.mount
+Failed to mount tmp-shaders.mount
+userconfig-setup[523]: ln: /storage/.config/emulationstation/locale: No such file or directory
+```
+
+**What we've tried:**
+- Verified partition label is "STORAGE" (correct)
+- Ran `e2fsck -fy /dev/sda2` (passes clean)
+- Reformatted STORAGE with `mkfs.ext4 -L STORAGE`
+- Created expected directories (.config, .cache, .update)
+- Reflashed ROCKNIX boot partition from fresh image
+
+**Suspected causes:**
+- ROCKNIX may detect partition table changes and mount read-only as safety measure
+- ROCKNIX init scripts may have hardcoded expectations about partition layout
+- UUID change after reformat may confuse ROCKNIX
+- Filesystem features (journal, 64bit) may differ from ROCKNIX expectations
+
+**Next steps:**
+- Investigate ROCKNIX source code for storage mounting logic
+- Check if ROCKNIX uses UUID vs LABEL for mounting
+- Determine if ROCKNIX has specific filesystem feature requirements
 
 ---
 
