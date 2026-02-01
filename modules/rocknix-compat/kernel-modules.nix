@@ -1,8 +1,9 @@
 { config, lib, pkgs, ... }:
 
 # ROCKNIX Kernel/Firmware Compatibility Module
-# This module handles the bind-mounted kernel modules and firmware from ROCKNIX
-# The actual bind-mounts are done by mount-storage.sh during boot
+# This module handles chain-booting NixOS from ROCKNIX
+# ROCKNIX provides: kernel, initrd, firmware, kernel modules
+# NixOS provides: userspace, systemd, services
 
 {
   options.rp5.rocknix = {
@@ -28,33 +29,77 @@
   };
 
   config = lib.mkIf (config.rp5.rocknix.enable or true) {
-    # Treat as container to skip bootloader/initrd requirements
-    # We chain-boot from ROCKNIX, so we don't need NixOS to manage boot
+    # ==========================================================================
+    # CRITICAL: Container-style boot configuration
+    # This tells NixOS we're in an environment where boot is handled externally
+    # ==========================================================================
+
+    # Mark as container to skip most boot requirements
     boot.isContainer = true;
 
-    # Provide stub for initialRamdisk that the system builder expects
-    system.build.initialRamdisk = pkgs.runCommand "dummy-initrd" {} "mkdir -p $out; touch $out/initrd";
+    # Disable kernel building - we use ROCKNIX kernel via bind-mount
+    boot.kernel.enable = false;
 
-    # Still set these for documentation purposes
+    # Disable modprobe config generation - modules come from ROCKNIX
+    boot.modprobeConfig.enable = false;
+
+    # Disable initrd - we chain-boot via switch_root from ROCKNIX init
+    boot.initrd.enable = false;
+    boot.initrd.systemd.enable = lib.mkForce false;
+
+    # Disable all bootloaders - ROCKNIX GRUB handles booting
     boot.loader = {
       grub.enable = lib.mkForce false;
       systemd-boot.enable = lib.mkForce false;
       generic-extlinux-compatible.enable = lib.mkForce false;
+      initScript.enable = true;  # Required when grub is disabled
     };
+
+    # ==========================================================================
+    # STUBS: Provide dummy derivations for attributes the system builder expects
+    # These won't actually be used - ROCKNIX provides the real kernel/initrd
+    # ==========================================================================
+
+    system.build.installBootLoader = lib.mkForce "${pkgs.coreutils}/bin/true";
+
+    system.build.initialRamdisk = lib.mkForce (
+      pkgs.runCommand "rocknix-dummy-initrd" {} ''
+        mkdir -p $out
+        echo "# Dummy initrd - NixOS chain-boots from ROCKNIX" > $out/initrd
+      ''
+    );
+
+    system.build.kernel = lib.mkForce (
+      pkgs.runCommand "rocknix-dummy-kernel" {} ''
+        mkdir -p $out
+        touch $out/Image
+        touch $out/bzImage
+      ''
+    );
+
+    # ==========================================================================
+    # RE-ENABLE: Things that boot.isContainer disables but we need
+    # ==========================================================================
+
+    console.enable = lib.mkForce true;
+    services.udev.enable = lib.mkForce true;
+
+    # ==========================================================================
+    # ROCKNIX Integration
+    # ==========================================================================
 
     # System activation should not try to build kernel modules
     system.activationScripts.setupKernelModules = lib.mkForce "";
 
-    # Don't regenerate hardware config that depends on kernel
+    # Tag for identification
     system.nixos.tags = [ "rocknix-compat" ];
 
     # Environment for ROCKNIX compatibility
     environment.variables = {
-      # Firmware path for drivers
       FIRMWARE_PATH = config.rp5.rocknix.firmwarePath or "/lib/firmware";
     };
 
-    # Systemd service to verify ROCKNIX mounts
+    # Systemd service to verify ROCKNIX mounts on boot
     systemd.services.rocknix-verify = {
       description = "Verify ROCKNIX bind mounts";
       wantedBy = [ "multi-user.target" ];
@@ -104,53 +149,8 @@
     };
 
     # Symlinks for firmware compatibility
-    # Some drivers look in different paths
     environment.etc = {
-      # Alternative firmware paths that some drivers check
       "firmware".source = "/lib/firmware";
     };
-
-    # Module loading configuration
-    # These modules should be loaded from the ROCKNIX bind-mount
-    boot.kernelModules = [
-      # Graphics
-      "msm_drm"         # Qualcomm DRM driver
-      "gpu_sched"       # GPU scheduler
-
-      # Input
-      "evdev"
-      "uinput"
-
-      # USB
-      "usbcore"
-      "usbhid"
-      "usb_storage"
-
-      # Networking
-      "cfg80211"        # Wireless configuration
-      "mac80211"        # Wireless MAC layer
-      # Qualcomm WiFi driver loaded by firmware
-
-      # Bluetooth
-      "bluetooth"
-      "btusb"
-      "rfkill"
-
-      # Filesystem
-      "ext4"
-      "vfat"
-      "nls_cp437"
-      "nls_iso8859-1"
-
-      # Audio
-      "snd"
-      "snd_pcm"
-      "snd_timer"
-    ];
-
-    # Blacklisted modules (prevent loading problematic modules)
-    boot.blacklistedKernelModules = [
-      # Add any modules that cause issues
-    ];
   };
 }
