@@ -15,18 +15,21 @@ Chain-boot script that allows NixOS to boot from ROCKNIX.
 ### Purpose
 Hooks into ROCKNIX's init process to optionally chain-boot into NixOS.
 
+NixOS lives in an image file (`/storage/nixos.img`) on ROCKNIX's STORAGE partition - no partition modifications needed.
+
 ### Installation
 
 1. Copy to ROCKNIX boot partition:
 ```bash
-# Mount ROCKNIX boot partition
-sudo mount /dev/sdX1 /mnt/rocknix
+# From ROCKNIX SSH session
+mkdir -p /tmp/boot
+mount /dev/mmcblk0p1 /tmp/boot
 
-# Install hook
-sudo cp boot/mount-storage.sh /mnt/rocknix/
-sudo chmod 755 /mnt/rocknix/mount-storage.sh
+# Download or copy the script
+curl -o /tmp/boot/mount-storage.sh https://raw.githubusercontent.com/yourusername/nixos-rp5/main/boot/mount-storage.sh
+chmod 755 /tmp/boot/mount-storage.sh
 
-sudo umount /mnt/rocknix
+umount /tmp/boot
 ```
 
 2. ROCKNIX init will call this script during storage mounting phase.
@@ -56,11 +59,9 @@ Check boot triggers ──→ No trigger ──→ Continue ROCKNIX boot
      ↓ (trigger found)
 Check boot failsafe
      ↓
-┌─────────────────────────────────────────────────────────┐
-│ IMAGE MODE:                │ PARTITION MODE:            │
-│  Mount STORAGE partition   │  Mount NIXOSROOT partition │
-│  Loop-mount nixos.img      │                            │
-└─────────────────────────────────────────────────────────┘
+Mount STORAGE partition
+     ↓
+Loop-mount /storage/nixos.img
      ↓
 Verify it's a NixOS root (/nix exists)
      ↓
@@ -94,27 +95,12 @@ Protects against boot loops:
 3. Counter is stored on ROCKNIX storage partition
 4. Clear counter to retry: `rm /storage/.nixos-boot-attempts`
 
-### Boot Modes
-
-The script supports two boot modes:
-
-| Mode | Description | Pros | Cons |
-|------|-------------|------|------|
-| `image` | NixOS in image file on STORAGE | No partition changes, ROCKNIX stays stock | Slightly slower I/O |
-| `partition` | NixOS on separate partition | Native speed | Requires partition resize, may cause issues |
-
-**Image mode (recommended):** NixOS lives in `/storage/nixos.img`. No partition modifications needed.
-
-**Partition mode:** NixOS lives on a separate `NIXOSROOT` partition. Requires shrinking STORAGE.
-
 ### Configuration Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BTN_SELECT` | 314 | SELECT button keycode |
-| `NIXOS_BOOT_MODE` | image | Boot mode: "image" or "partition" |
-| `NIXOS_IMAGE_PATH` | /storage/nixos.img | Path to NixOS image (image mode) |
-| `NIXOS_PARTITION` | LABEL=NIXOSROOT | NixOS partition identifier (partition mode) |
+| `NIXOS_IMAGE_PATH` | /storage/nixos.img | Path to NixOS image file |
 | `MAX_BOOT_ATTEMPTS` | 3 | Failsafe threshold |
 | `DEBUG_MODE` | 0 | Enable verbose logging |
 
@@ -129,6 +115,12 @@ Checks all boot triggers (button, flag file, cmdline).
 **check_boot_counter():**
 Implements boot failsafe counter.
 
+**setup_loop_device($image_path):**
+Sets up loop device for the NixOS image file.
+
+**mount_nixos_root($nixroot):**
+Mounts NixOS from the image file.
+
 **find_nixos_init($nixroot):**
 Locates NixOS systemd init in the mounted root.
 
@@ -141,20 +133,21 @@ Main boot sequence - mounts, bind-mounts, and switch_root.
 ```bash
 # Boot to ROCKNIX and check:
 
-# 1. Is the partition accessible?
-ls /dev/disk/by-label/NIXOSROOT
+# 1. Is the image file present?
+ls -la /storage/nixos.img
 
 # 2. Check boot counter
 cat /storage/.nixos-boot-attempts
 
-# 3. Try manual boot
-mount /dev/disk/by-label/NIXOSROOT /mnt
+# 3. Try manual mount
+losetup -f /storage/nixos.img
+mount /dev/loop0 /mnt
 ls /mnt/nix  # Should exist
 ```
 
 **Stuck at boot:**
 ```bash
-# Enable debug mode (edit mount-storage.sh)
+# Enable debug mode (edit mount-storage.sh on boot partition)
 DEBUG_MODE=1
 
 # Watch serial console or connect via ADB
@@ -182,7 +175,7 @@ From this shell you can:
 # Check mounts
 mount
 
-# Check NixOS partition
+# Check NixOS root
 ls /nixroot
 
 # Check logs

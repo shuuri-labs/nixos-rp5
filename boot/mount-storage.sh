@@ -23,23 +23,9 @@ BOOT_COUNTER="/storage/.nixos-boot-attempts"
 MAX_BOOT_ATTEMPTS=3
 DEBUG_MODE=0                                # Set to 1 for verbose logging
 
-# -----------------------------------------------------------------------------
-# Boot Mode Configuration
-# -----------------------------------------------------------------------------
-# IMAGE mode (recommended): NixOS lives in an image file on STORAGE partition
-#   - No partition resizing needed
-#   - ROCKNIX stays completely stock
-#   - Set NIXOS_BOOT_MODE="image" and NIXOS_IMAGE_PATH="/storage/nixos.img"
-#
-# PARTITION mode (legacy): NixOS lives on a separate partition
-#   - Requires resizing STORAGE partition
-#   - May cause ROCKNIX read-only issues
-#   - Set NIXOS_BOOT_MODE="partition" and NIXOS_PARTITION="LABEL=NIXOSROOT"
-# -----------------------------------------------------------------------------
-NIXOS_BOOT_MODE="image"                     # "image" or "partition"
-NIXOS_IMAGE_PATH="/storage/nixos.img"       # Path to NixOS image (for image mode)
-NIXOS_IMAGE_SIZE="64G"                      # Size of image to create if missing
-NIXOS_PARTITION="LABEL=NIXOSROOT"           # Partition identifier (for partition mode)
+# NixOS image configuration
+# NixOS lives in an image file on STORAGE - no partition modifications needed
+NIXOS_IMAGE_PATH="/storage/nixos.img"       # Path to NixOS image file
 
 # -----------------------------------------------------------------------------
 # Logging helpers
@@ -211,30 +197,6 @@ find_nixos_init() {
 }
 
 # -----------------------------------------------------------------------------
-# resolve_partition - Convert partition spec to device path
-# Supports: LABEL=xxx, UUID=xxx, /dev/xxx
-# -----------------------------------------------------------------------------
-resolve_partition() {
-    local spec="$1"
-
-    case "$spec" in
-        LABEL=*)
-            echo "/dev/disk/by-label/${spec#LABEL=}"
-            ;;
-        UUID=*)
-            echo "/dev/disk/by-uuid/${spec#UUID=}"
-            ;;
-        /dev/*)
-            echo "$spec"
-            ;;
-        *)
-            log_error "Unknown partition spec: $spec"
-            return 1
-            ;;
-    esac
-}
-
-# -----------------------------------------------------------------------------
 # setup_loop_device - Set up loop device for image file
 # Returns the loop device path on stdout
 # -----------------------------------------------------------------------------
@@ -266,60 +228,36 @@ setup_loop_device() {
 }
 
 # -----------------------------------------------------------------------------
-# mount_nixos_root - Mount NixOS root filesystem
-# Handles both image and partition modes
-# Sets NIXOS_ROOT_DEV to the device used
+# mount_nixos_root - Mount NixOS root filesystem from image
+# Sets NIXOS_ROOT_DEV to the loop device used
 # -----------------------------------------------------------------------------
 mount_nixos_root() {
     local nixroot="$1"
 
-    if [ "$NIXOS_BOOT_MODE" = "image" ]; then
-        # Image mode: loop-mount from STORAGE
-        log "Boot mode: IMAGE ($NIXOS_IMAGE_PATH)"
+    log "Mounting NixOS from image: $NIXOS_IMAGE_PATH"
 
-        # First ensure STORAGE is mounted
-        if ! mountpoint -q /storage 2>/dev/null; then
-            log "Mounting STORAGE partition first..."
-            mkdir -p /storage
-            if ! mount /dev/disk/by-label/STORAGE /storage -o rw,noatime; then
-                log_error "Failed to mount STORAGE partition"
-                return 1
-            fi
-        fi
-
-        # Set up loop device for the image
-        NIXOS_ROOT_DEV=$(setup_loop_device "$NIXOS_IMAGE_PATH")
-        if [ -z "$NIXOS_ROOT_DEV" ]; then
+    # First ensure STORAGE is mounted
+    if ! mountpoint -q /storage 2>/dev/null; then
+        log "Mounting STORAGE partition first..."
+        mkdir -p /storage
+        if ! mount /dev/disk/by-label/STORAGE /storage -o rw,noatime; then
+            log_error "Failed to mount STORAGE partition"
             return 1
         fi
+    fi
 
-        # Mount the loop device
-        log "Mounting NixOS image..."
-        if ! mount -t ext4 -o rw,noatime,nodiratime "$NIXOS_ROOT_DEV" "$nixroot"; then
-            log_error "Failed to mount NixOS image"
-            losetup -d "$NIXOS_ROOT_DEV"
-            return 1
-        fi
+    # Set up loop device for the image
+    NIXOS_ROOT_DEV=$(setup_loop_device "$NIXOS_IMAGE_PATH")
+    if [ -z "$NIXOS_ROOT_DEV" ]; then
+        return 1
+    fi
 
-    else
-        # Partition mode: mount partition directly
-        log "Boot mode: PARTITION ($NIXOS_PARTITION)"
-
-        NIXOS_ROOT_DEV=$(resolve_partition "$NIXOS_PARTITION")
-        if [ ! -b "$NIXOS_ROOT_DEV" ]; then
-            log_error "NixOS partition not found: $NIXOS_PARTITION"
-            log_error "Expected device: $NIXOS_ROOT_DEV"
-            return 1
-        fi
-
-        log "Found NixOS partition: $NIXOS_ROOT_DEV"
-
-        # Mount NixOS root partition
-        log "Mounting NixOS root filesystem..."
-        if ! mount -t ext4 -o rw,noatime,nodiratime "$NIXOS_ROOT_DEV" "$nixroot"; then
-            log_error "Failed to mount NixOS root partition"
-            return 1
-        fi
+    # Mount the loop device
+    log "Mounting NixOS image..."
+    if ! mount -t ext4 -o rw,noatime,nodiratime "$NIXOS_ROOT_DEV" "$nixroot"; then
+        log_error "Failed to mount NixOS image"
+        losetup -d "$NIXOS_ROOT_DEV"
+        return 1
     fi
 
     return 0
@@ -420,24 +358,14 @@ boot_nixos() {
         log_error "Firmware not found at expected path"
     fi
 
-    # Mount/move storage partition into NixOS
+    # Move STORAGE into NixOS (already mounted for image access)
     mkdir -p "$nixroot/rocknix/storage"
-    if [ "$NIXOS_BOOT_MODE" = "image" ]; then
-        # Image mode: STORAGE is already mounted at /storage, move it
-        if mountpoint -q /storage 2>/dev/null; then
-            mount --move /storage "$nixroot/rocknix/storage" || {
-                log_error "Failed to move /storage"
-                # Try bind mount as fallback
-                mount --bind /storage "$nixroot/rocknix/storage"
-            }
-        fi
-    else
-        # Partition mode: mount STORAGE if available
-        if [ -b "/dev/disk/by-label/STORAGE" ]; then
-            mount /dev/disk/by-label/STORAGE "$nixroot/rocknix/storage" -o rw,noatime || {
-                log_error "Failed to mount STORAGE partition"
-            }
-        fi
+    if mountpoint -q /storage 2>/dev/null; then
+        mount --move /storage "$nixroot/rocknix/storage" || {
+            log_error "Failed to move /storage"
+            # Try bind mount as fallback
+            mount --bind /storage "$nixroot/rocknix/storage"
+        }
     fi
 
     # Move virtual filesystems to new root

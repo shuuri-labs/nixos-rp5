@@ -184,8 +184,8 @@ userconfig-setup[523]: ln: /storage/.config/emulationstation/locale: No such fil
 **Root cause (likely):**
 Modern Ubuntu's `mkfs.ext4` creates filesystems with features like `metadata_csum` and `64bit` that the ROCKNIX kernel (based on LibreELEC/JELOS) may not fully support. When the kernel encounters incompatible features, it mounts read-only as a safety measure.
 
-**Solution (Recommended): Image-Based Boot**
-Instead of modifying partitions, NixOS can live in an image file on ROCKNIX's STORAGE partition:
+**Solution: Image-Based Boot**
+NixOS now lives in an image file on ROCKNIX's STORAGE partition:
 
 ```bash
 # From ROCKNIX SSH:
@@ -193,25 +193,7 @@ dd if=/dev/zero of=/storage/nixos.img bs=1M count=65536
 mkfs.ext4 -L NIXOSROOT /storage/nixos.img
 ```
 
-This avoids all partition/filesystem compatibility issues. See INSTALL.md Method A.
-
-**Alternative Solution: Fix ext4 Features**
-If using partition-based install, disable incompatible ext4 features:
-
-```bash
-# Option 1: Create ext4 without problematic features
-sudo mkfs.ext4 -L STORAGE -O ^metadata_csum,^64bit /dev/sdX2
-
-# Option 2: Disable features on existing filesystem
-sudo tune2fs -O ^metadata_csum,^64bit /dev/sdX2
-sudo e2fsck -f /dev/sdX2
-```
-
-**ROCKNIX mounting behavior:**
-- Uses busybox init script inherited from LibreELEC/JELOS
-- Mounts by LABEL (STORAGE) with `rw,noatime` options
-- Runs fsck before mounting
-- Mounts read-only if kernel detects incompatible features or errors
+This avoids all partition/filesystem compatibility issues. See INSTALL.md for full instructions.
 
 ---
 
