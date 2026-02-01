@@ -18,7 +18,31 @@ NixOS lives in an image file on ROCKNIX's STORAGE partition. This approach:
 
 ---
 
-## Step 1: Boot ROCKNIX and Create the Image
+## Quick Install (Scripts)
+
+### Step 1: ROCKNIX Setup
+Boot ROCKNIX, connect to WiFi, then from your computer:
+```bash
+# SSH and run setup script
+ssh root@<rocknix-ip> 'sh -s' < scripts/rocknix-setup.sh
+```
+
+### Step 2: NixOS Install
+Power off RP5, put SD card in Linux VM, then:
+```bash
+cd nixos-rp5
+git pull
+sudo ./scripts/vm-install.sh
+```
+
+### Step 3: Boot
+Put SD card back in RP5, hold SELECT during boot.
+
+---
+
+## Manual Install (Step by Step)
+
+### Step 1: Boot ROCKNIX and Create the Image
 
 First, ensure ROCKNIX boots and works normally. Then SSH into ROCKNIX:
 
