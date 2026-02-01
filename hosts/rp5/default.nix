@@ -23,14 +23,9 @@
   i18n.defaultLocale = "en_US.UTF-8";
 
   # Boot configuration
-  # We use ROCKNIX kernel via switch_root, so minimal boot config
+  # Bootloader and initrd are handled by modules/rocknix-compat/kernel-modules.nix
+  # Only set options that are specific to this host here
   boot = {
-    # No bootloader management - ROCKNIX handles this
-    loader.grub.enable = false;
-
-    # No initrd - we boot via switch_root from ROCKNIX
-    initrd.enable = false;
-
     # Kernel parameters (passed via ROCKNIX kernel cmdline)
     kernelParams = [
       "quiet"

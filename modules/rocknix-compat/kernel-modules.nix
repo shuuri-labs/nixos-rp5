@@ -7,7 +7,11 @@
 
 {
   options.rp5.rocknix = {
-    enable = lib.mkEnableOption "ROCKNIX compatibility layer";
+    enable = lib.mkOption {
+      type = lib.types.bool;
+      default = true;  # Enabled by default when module is imported
+      description = "Enable ROCKNIX compatibility layer";
+    };
 
     modulesPath = lib.mkOption {
       type = lib.types.path;
@@ -28,7 +32,7 @@
     };
   };
 
-  config = lib.mkIf (config.rp5.rocknix.enable or true) {
+  config = lib.mkIf config.rp5.rocknix.enable {
     # ==========================================================================
     # CRITICAL: Container-style boot configuration
     # This tells NixOS we're in an environment where boot is handled externally
