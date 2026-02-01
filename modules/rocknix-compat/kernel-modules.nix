@@ -28,24 +28,18 @@
   };
 
   config = lib.mkIf (config.rp5.rocknix.enable or true) {
-    # Boot configuration for ROCKNIX kernel
-    boot = {
-      # We use ROCKNIX's kernel, but let NixOS build a minimal initrd
-      # (it won't actually be used since we chain-boot from ROCKNIX)
+    # Treat as container to skip bootloader/initrd requirements
+    # We chain-boot from ROCKNIX, so we don't need NixOS to manage boot
+    boot.isContainer = true;
 
-      # Minimal initrd - won't be used but satisfies NixOS requirements
-      initrd = {
-        # Include minimal modules in case initrd is somehow used
-        availableKernelModules = [ ];
-        kernelModules = [ ];
-      };
+    # Override the container check for systemd (we're not actually a container)
+    boot.enableContainers = lib.mkDefault true;
 
-      # No bootloader - ROCKNIX handles this
-      loader = {
-        grub.enable = lib.mkForce false;
-        systemd-boot.enable = lib.mkForce false;
-        generic-extlinux-compatible.enable = lib.mkForce false;
-      };
+    # Still set these for documentation purposes
+    boot.loader = {
+      grub.enable = lib.mkForce false;
+      systemd-boot.enable = lib.mkForce false;
+      generic-extlinux-compatible.enable = lib.mkForce false;
     };
 
     # System activation should not try to build kernel modules
