@@ -1,0 +1,29 @@
+# ES-DE Session Switch Snippet from overlays/default.nix
+# Archive date: 2026-02-01
+# Re-integration: See README.md in this directory
+
+# =============================================================================
+# SNIPPET: ES-DE case in rp5-session-switch
+# Add this case in the rp5-session-switch script between steam) and plasma)
+# =============================================================================
+
+      esde)
+        echo "Switching to ES-DE session..."
+        systemctl --user stop gamescope-steam.service 2>/dev/null || true
+        systemctl --user stop plasma-session.service 2>/dev/null || true
+        systemctl --user start gamescope-esde.service
+        ;;
+
+
+# =============================================================================
+# NOTE: Also update the following when re-integrating:
+# =============================================================================
+
+# 1. In the steam) case, add:
+#    systemctl --user stop gamescope-esde.service 2>/dev/null || true
+
+# 2. In the plasma) case, add:
+#    systemctl --user stop gamescope-esde.service 2>/dev/null || true
+
+# 3. Update the usage message to include esde:
+#    echo "Usage: rp5-session-switch {steam|esde|plasma}"

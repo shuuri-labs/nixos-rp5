@@ -1,0 +1,46 @@
+# ES-DE Overlay Menu Snippets from modules/overlay/overlay-daemon.nix
+# Archive date: 2026-02-01
+# Re-integration: See README.md in this directory
+
+# =============================================================================
+# SNIPPET 1: Menu Entry (whiptail menu)
+# Add this line in the whiptail menu options, after "Switch to Steam"
+# =============================================================================
+
+          "6" "Switch to ES-DE" \
+
+
+# =============================================================================
+# SNIPPET 2: Case Handler (whiptail)
+# Add this case in the whiptail case handler
+# =============================================================================
+
+          6)
+            rp5-session-switch esde
+            ;;
+
+
+# =============================================================================
+# SNIPPET 3: Fallback Menu Echo
+# Add this line in the fallback echo menu
+# =============================================================================
+
+        echo "6) Switch to ES-DE"
+
+
+# =============================================================================
+# NOTE: When re-integrating, renumber the following options:
+# =============================================================================
+
+# Whiptail menu (current without ES-DE):
+#   "5" "Switch to Steam"
+#   "6" "Switch to Plasma"
+#   "7" "Exit"
+#
+# Whiptail menu (with ES-DE):
+#   "5" "Switch to Steam"
+#   "6" "Switch to ES-DE"
+#   "7" "Switch to Plasma"
+#   "8" "Exit"
+#
+# Case handlers and fallback echo need corresponding updates.

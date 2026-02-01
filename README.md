@@ -1,65 +1,43 @@
 # NixOS for Retroid Pocket 5
 
-Run NixOS on your Retroid Pocket 5 with three session modes: Steam gaming, retro gaming (ES-DE), and full desktop (KDE Plasma).
+Run NixOS on your Retroid Pocket 5 with two session modes: Steam gaming and full desktop (KDE Plasma).
 
 ## Features
 
 - **Gamescope Steam Mode** - Steam Big Picture via FEX-Emu in Gamescope compositor
-- **Gamescope ES-DE Mode** - EmulationStation Desktop Edition for retro gaming
 - **Plasma Desktop Mode** - Full KDE Plasma Wayland desktop
 - **System Overlay** - Quick settings via HOME button long-press
 - **Persistent NixOS** - Full NixOS with generations, rollback, etc.
 
+See [progress.md](progress.md) for project status and to-do items.
+
 ## Prerequisites
 
 - Retroid Pocket 5 with ROCKNIX installed and working
-- SD card with at least 64GB (32GB+ for NixOS partition)
-- Another Linux machine for initial setup
+- SD card (512GB recommended, 128GB minimum)
+- Linux machine or VM for partitioning (see [INSTALL.md](INSTALL.md) for macOS instructions)
 - Basic familiarity with NixOS and flakes
 
 ## Quick Start
 
-### 1. Prepare the SD Card
+See **[INSTALL.md](INSTALL.md)** for complete installation instructions including:
+- SD card partitioning (with macOS/UTM instructions)
+- Boot hook installation
+- NixOS installation
+- First boot setup
 
-On your Linux machine with the RP5's SD card:
+### Partition Layout
 
-```bash
-# Create NixOS partition (after existing ROCKNIX partitions)
-# Using fdisk, parted, or gparted, create a ~32GB+ partition
+| Partition | Label | Size | Purpose |
+|-----------|-------|------|---------|
+| 1 | (ROCKNIX) | 2GB | ROCKNIX boot |
+| 2 | STORAGE | Remainder - 64GB | ROMs, shared data, Steam games |
+| 3 | NIXOSROOT | 64GB | NixOS system |
 
-# Format with label
-sudo mkfs.ext4 -L NIXOSROOT /dev/sdX3  # Replace X3 with your partition
-```
+### Boot into NixOS
 
-### 2. Install Boot Hook
-
-```bash
-# Mount ROCKNIX boot partition
-sudo mount /dev/sdX1 /mnt/rocknix
-
-# Install the boot hook
-sudo cp boot/mount-storage.sh /mnt/rocknix/
-sudo chmod 755 /mnt/rocknix/mount-storage.sh
-
-sudo umount /mnt/rocknix
-```
-
-### 3. Build NixOS Configuration
-
-```bash
-# Build the system
-nix build .#nixosConfigurations.rp5.config.system.build.toplevel
-
-# Or if you have nixos-install
-sudo mount /dev/disk/by-label/NIXOSROOT /mnt
-sudo nixos-install --root /mnt --flake .#rp5
-```
-
-### 4. Boot into NixOS
-
-Insert the SD card into your RP5, then:
 - **Hold SELECT button during boot** to start NixOS
-- Or create `/storage/.boot-nixos` file on ROCKNIX storage partition
+- Or create `/storage/.boot-nixos` file for automatic boot
 
 ## Session Modes
 
@@ -67,11 +45,6 @@ Insert the SD card into your RP5, then:
 - Launches Steam in Big Picture mode via FEX-Emu
 - Optimized for gamepad input
 - FPS limiting via `rp5-fps` command
-
-### ES-DE Mode (Gamescope)
-- EmulationStation Desktop Edition
-- Full controller support
-- Access to various emulators
 
 ### Plasma Mode
 - Full KDE Plasma desktop
@@ -86,7 +59,7 @@ Hold the **HOME button for 800ms** to open the quick settings overlay:
 - **Volume** - Adjust audio volume
 - **WiFi** - Toggle wireless on/off
 - **Bluetooth** - Toggle Bluetooth on/off
-- **Session Switch** - Change between Steam/ES-DE/Plasma
+- **Session Switch** - Change between Steam/Plasma
 - **FPS Limit** - Change framerate cap (in Steam mode)
 
 ## Utility Commands
@@ -94,7 +67,6 @@ Hold the **HOME button for 800ms** to open the quick settings overlay:
 ```bash
 # Session switching
 rp5-session-switch steam   # Switch to Steam mode
-rp5-session-switch esde    # Switch to ES-DE mode
 rp5-session-switch plasma  # Switch to Plasma mode
 
 # FPS control (in gamescope sessions)

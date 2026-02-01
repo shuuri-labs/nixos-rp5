@@ -177,9 +177,8 @@ let
           "3" "WiFi: $WIFI" \
           "4" "Bluetooth: $BT" \
           "5" "Switch to Steam" \
-          "6" "Switch to ES-DE" \
-          "7" "Switch to Plasma" \
-          "8" "Exit" \
+          "6" "Switch to Plasma" \
+          "7" "Exit" \
           3>&1 1>&2 2>&3)
 
         case "$CHOICE" in
@@ -205,12 +204,9 @@ let
             rp5-session-switch steam
             ;;
           6)
-            rp5-session-switch esde
-            ;;
-          7)
             rp5-session-switch plasma
             ;;
-          8|"")
+          7|"")
             exit 0
             ;;
         esac
@@ -223,9 +219,8 @@ let
         echo "3) WiFi: $WIFI"
         echo "4) Bluetooth: $BT"
         echo "5) Switch to Steam"
-        echo "6) Switch to ES-DE"
-        echo "7) Switch to Plasma"
-        echo "8) Exit"
+        echo "6) Switch to Plasma"
+        echo "7) Exit"
         read -p "Choice: " CHOICE
         # Handle choice...
       fi

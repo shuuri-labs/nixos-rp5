@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-NixOS configuration for chain-booting NixOS on the Retroid Pocket 5 (Snapdragon 865/SM8250) via ROCKNIX. The system provides three session modes:
+NixOS configuration for chain-booting NixOS on the Retroid Pocket 5 (Snapdragon 865/SM8250) via ROCKNIX. The system provides two session modes:
 
 1. **Gamescope Steam** - Steam Big Picture via FEX-Emu/Box64 in Gamescope compositor
-2. **Gamescope ES-DE** - EmulationStation Desktop Edition for retro gaming
-3. **Plasma Wayland** - Full KDE Plasma desktop environment
+2. **Plasma Wayland** - Full KDE Plasma desktop environment
+
+See [progress.md](progress.md) for project status and to-do items.
 
 ## Architecture
 
@@ -66,15 +67,19 @@ nixpkgs-fmt **/*.nix
 
 ## Installation
 
-1. **Create NixOS partition** on SD card (ext4, label: NIXOSROOT)
+See **[INSTALL.md](INSTALL.md)** for complete instructions. Summary:
+
+1. **Partition SD card**: 2GB ROCKNIX boot, 64GB NIXOSROOT, rest for STORAGE
 2. **Install boot hook**: Copy `boot/mount-storage.sh` to ROCKNIX boot partition
-3. **Bootstrap NixOS**: Use `scripts/install.sh bootstrap /mnt/nixos`
-4. **Build and deploy**: `nixos-install --root /mnt/nixos --flake .#rp5`
+3. **Build and deploy**: `nixos-install --root /mnt/nixos --flake .#rp5`
+4. **Boot**: Hold SELECT during boot, or create `/storage/.boot-nixos`
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
+| `INSTALL.md` | Complete installation guide |
+| `progress.md` | Project status and to-do list |
 | `boot/mount-storage.sh` | ROCKNIX chain-boot hook |
 | `flake.nix` | Flake entry point |
 | `hosts/rp5/default.nix` | Main host config |
@@ -90,7 +95,6 @@ Sessions are managed via greetd. Session selection at login or runtime switching
 ```bash
 # Switch sessions (from overlay or terminal)
 rp5-session-switch steam   # Gamescope + Steam
-rp5-session-switch esde    # Gamescope + ES-DE
 rp5-session-switch plasma  # KDE Plasma
 
 # Control FPS in gamescope

@@ -44,30 +44,6 @@ let
       steam -gamepadui -steamos -steamdeck
   '';
 
-  # Gamescope ES-DE session launch script
-  gamescopeEsdeSession = pkgs.writeShellScript "gamescope-esde-session" ''
-    #!/bin/bash
-    set -e
-
-    # Environment setup
-    export XDG_SESSION_TYPE=wayland
-    export SDL_VIDEODRIVER=wayland
-    export QT_QPA_PLATFORM=wayland
-
-    # Vulkan settings
-    export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
-
-    # Start gamescope with ES-DE
-    exec ${pkgs.gamescope}/bin/gamescope \
-      -e \
-      -f \
-      --xwayland-count 1 \
-      --default-touch-mode 4 \
-      --hide-cursor-delay 3000 \
-      -- \
-      ${pkgs.emulationstation-de or pkgs.coreutils}/bin/es-de --resolution 1920 1080
-  '';
-
   # Plasma Wayland session script
   plasmaSession = pkgs.writeShellScript "plasma-wayland-session" ''
     #!/bin/bash
@@ -111,14 +87,6 @@ in {
       Name=Steam (Gamescope)
       Comment=Steam Big Picture in Gamescope compositor
       Exec=${gamescopeSteamSession}
-      Type=Application
-    '';
-
-    "greetd/sessions/gamescope-esde.desktop".text = ''
-      [Desktop Entry]
-      Name=ES-DE (Gamescope)
-      Comment=EmulationStation Desktop Edition in Gamescope
-      Exec=${gamescopeEsdeSession}
       Type=Application
     '';
 
@@ -202,19 +170,6 @@ in {
       };
     };
 
-    # Gamescope ES-DE as a user service
-    gamescope-esde = {
-      description = "Gamescope ES-DE Session";
-      wantedBy = [ ];
-      serviceConfig = {
-        ExecStart = "${gamescopeEsdeSession}";
-        Restart = "on-failure";
-        RestartSec = 3;
-      };
-      environment = {
-        XDG_RUNTIME_DIR = "/run/user/%U";
-      };
-    };
   };
 
   # Programs configuration

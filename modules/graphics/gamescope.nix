@@ -34,28 +34,9 @@
 
       # GPU monitoring
       # (add platform-specific tools if available)
-    ];
 
-    # Gamescope needs CAP_SYS_NICE for realtime scheduling
-    security.wrappers.gamescope = {
-      owner = "root";
-      group = "root";
-      capabilities = "cap_sys_nice+ep";
-      source = "${pkgs.gamescope}/bin/gamescope";
-    };
-
-    # Environment for gamescope
-    environment.variables = {
-      # Default FPS limit (can be overridden per-session)
-      GAMESCOPE_FPS_LIMIT = toString (config.rp5.gamescope.defaultFpsLimit or 60);
-
-      # MangoHud configuration
-      MANGOHUD_CONFIG = "fps,frametime,cpu_temp,gpu_temp,ram,position=top-left,font_size=18";
-    };
-
-    # Gamescope wrapper script with FPS control
-    environment.systemPackages = [
-      (pkgs.writeShellScriptBin "gamescope-rp5" ''
+      # Gamescope wrapper script with FPS control
+      (writeShellScriptBin "gamescope-rp5" ''
         #!/bin/bash
         # Gamescope wrapper with runtime FPS control
 
@@ -118,6 +99,23 @@
         exec ${pkgs.gamescope}/bin/gamescope "''${ARGS[@]}" "$@"
       '')
     ];
+
+    # Gamescope needs CAP_SYS_NICE for realtime scheduling
+    security.wrappers.gamescope = {
+      owner = "root";
+      group = "root";
+      capabilities = "cap_sys_nice+ep";
+      source = "${pkgs.gamescope}/bin/gamescope";
+    };
+
+    # Environment for gamescope
+    environment.variables = {
+      # Default FPS limit (can be overridden per-session)
+      GAMESCOPE_FPS_LIMIT = toString (config.rp5.gamescope.defaultFpsLimit or 60);
+
+      # MangoHud configuration
+      MANGOHUD_CONFIG = "fps,frametime,cpu_temp,gpu_temp,ram,position=top-left,font_size=18";
+    };
 
     # Kernel parameters for better gaming performance
     boot.kernel.sysctl = {

@@ -13,24 +13,16 @@ final: prev: {
     case "$1" in
       steam)
         echo "Switching to Steam session..."
-        systemctl --user stop gamescope-esde.service 2>/dev/null || true
         systemctl --user stop plasma-session.service 2>/dev/null || true
         systemctl --user start gamescope-steam.service
-        ;;
-      esde)
-        echo "Switching to ES-DE session..."
-        systemctl --user stop gamescope-steam.service 2>/dev/null || true
-        systemctl --user stop plasma-session.service 2>/dev/null || true
-        systemctl --user start gamescope-esde.service
         ;;
       plasma)
         echo "Switching to Plasma session..."
         systemctl --user stop gamescope-steam.service 2>/dev/null || true
-        systemctl --user stop gamescope-esde.service 2>/dev/null || true
         systemctl --user start plasma-session.service
         ;;
       *)
-        echo "Usage: rp5-session-switch {steam|esde|plasma}"
+        echo "Usage: rp5-session-switch {steam|plasma}"
         exit 1
         ;;
     esac
