@@ -8,10 +8,41 @@ mount_part "$disk" "/storage" "rw,noatime"
 
 # SELECT for NixOS
 if is_key_pressed $BTN_SELECT; then
-  # Set up NixOS image via loop device
-  losetup /dev/loop0 /storage/nixos.img
+  echo "[nixos] Setting up NixOS boot..."
+
+  # Check if image exists
+  if [ ! -f /storage/nixos.img ]; then
+    echo "[nixos] ERROR: /storage/nixos.img not found!"
+    ls -la /storage/
+    sleep 30
+  fi
+
+  # Set up loop device with error checking
+  echo "[nixos] Setting up loop device..."
+  if ! losetup /dev/loop0 /storage/nixos.img; then
+    echo "[nixos] ERROR: losetup failed!"
+    sleep 30
+  fi
+
+  # Mount with error checking
   mkdir -p /nixos
-  mount -t ext4 /dev/loop0 /nixos
+  echo "[nixos] Mounting NixOS image..."
+  if ! mount -t ext4 /dev/loop0 /nixos; then
+    echo "[nixos] ERROR: mount failed!"
+    echo "[nixos] Trying without -t ext4..."
+    mount /dev/loop0 /nixos || echo "[nixos] mount still failed!"
+    sleep 30
+  fi
+
+  # Verify mount worked
+  echo "[nixos] Checking mount..."
+  ls -la /nixos/
+  if [ ! -d /nixos/nix ]; then
+    echo "[nixos] ERROR: /nixos/nix not found after mount!"
+    echo "[nixos] Mount info:"
+    mount | grep nixos
+    sleep 30
+  fi
 
   # Move ROCKNIX mounts to storage
   for f in flash sysroot; do
