@@ -34,11 +34,6 @@ if is_key_pressed $BTN_SELECT; then
     /usr/bin/busybox mount --move /$f /nixos/$f
   done
 
-  # Find NixOS systemd and switch root
-  NIXOS_INIT=$(find /nixos/nix/var/nix/profiles/system -name "systemd" -path "*/lib/systemd/*" -type f 2>/dev/null | head -1)
-  if [ -z "$NIXOS_INIT" ]; then
-    NIXOS_INIT=$(find /nixos/nix/store -maxdepth 4 -name "systemd" -path "*/lib/systemd/*" -type f 2>/dev/null | head -1)
-  fi
-
-  exec /usr/bin/busybox switch_root /nixos $NIXOS_INIT --show-status=1 --unit=default.target
+  # Switch to NixOS - use the init wrapper which sets up environment and execs systemd
+  exec /usr/bin/busybox switch_root /nixos /nix/var/nix/profiles/system/init
 fi
