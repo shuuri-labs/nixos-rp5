@@ -27,17 +27,25 @@ if is_key_pressed $BTN_SELECT; then
     echo "[nixos] Found image: $(ls -lh /storage/nixos.img)"
   fi
 
-  # Set up loop device with error checking
-  echo "[nixos] Setting up loop device..."
-  if ! losetup /dev/loop0 /storage/nixos.img; then
-    echo "[nixos] ERROR: losetup failed!"
-    sleep 30
+  # Set up loop device - use loop1 since loop0 is used by ROCKNIX SYSTEM
+  echo "[nixos] Setting up loop device (loop1)..."
+  if ! losetup /dev/loop1 /storage/nixos.img; then
+    echo "[nixos] ERROR: losetup loop1 failed, trying loop2..."
+    if ! losetup /dev/loop2 /storage/nixos.img; then
+      echo "[nixos] ERROR: losetup failed on loop1 and loop2!"
+      losetup -a
+      sleep 60
+    fi
+    LOOP_DEV=/dev/loop2
+  else
+    LOOP_DEV=/dev/loop1
   fi
+  echo "[nixos] Using loop device: $LOOP_DEV"
 
   # Mount with error checking
   mkdir -p /nixos
   echo "[nixos] Mounting NixOS image..."
-  mount -t ext4 /dev/loop0 /nixos
+  mount -t ext4 $LOOP_DEV /nixos
   MOUNT_RESULT=$?
   echo "[nixos] mount exit code: $MOUNT_RESULT"
 
