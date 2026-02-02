@@ -2,7 +2,7 @@
 # =============================================================================
 # NixOS Install Script - Run from Linux VM with SD card attached
 # =============================================================================
-# This script mounts the NixOS image and runs nixos-install.
+# This script creates a NIXOSROOT partition on the SD card and installs NixOS.
 #
 # Prerequisites:
 # - SD card with ROCKNIX attached to VM
@@ -15,9 +15,8 @@
 set -e
 
 # Configuration
-STORAGE_DEV="/dev/disk/by-label/STORAGE"
-STORAGE_MOUNT="/mnt/storage"
-NIXOS_IMAGE="nixos.img"
+NIXOSROOT_SIZE="64G"
+NIXOSROOT_LABEL="NIXOSROOT"
 NIXOS_MOUNT="/mnt/nixos"
 FLAKE_REF=".#rp5"
 
@@ -53,51 +52,134 @@ fi
 echo "=== NixOS Installation Script ==="
 echo ""
 
-# Step 1: Find and mount STORAGE
-log "[1/5] Mounting STORAGE partition..."
-if [ ! -b "$STORAGE_DEV" ]; then
-    # Try to find it by scanning
-    STORAGE_DEV=$(blkid -L STORAGE 2>/dev/null || true)
-    if [ -z "$STORAGE_DEV" ]; then
-        error "STORAGE partition not found. Is the SD card connected?"
-        echo "Available disks:"
-        lsblk
-        exit 1
-    fi
-fi
+# Step 1: Find the SD card
+log "[1/6] Finding SD card..."
+ROCKNIX_DEV=$(blkid -L ROCKNIX 2>/dev/null || true)
+STORAGE_DEV=$(blkid -L STORAGE 2>/dev/null || true)
 
-mkdir -p "$STORAGE_MOUNT"
-if mountpoint -q "$STORAGE_MOUNT"; then
-    warn "STORAGE already mounted at $STORAGE_MOUNT"
-else
-    mount "$STORAGE_DEV" "$STORAGE_MOUNT"
-    log "Mounted STORAGE at $STORAGE_MOUNT"
-fi
-
-# Step 2: Check for NixOS image
-log "[2/5] Checking NixOS image..."
-if [ ! -f "$STORAGE_MOUNT/$NIXOS_IMAGE" ]; then
-    error "NixOS image not found at $STORAGE_MOUNT/$NIXOS_IMAGE"
-    error "Run rocknix-setup.sh on ROCKNIX first!"
-    umount "$STORAGE_MOUNT"
+if [ -z "$ROCKNIX_DEV" ] && [ -z "$STORAGE_DEV" ]; then
+    error "ROCKNIX SD card not found. Is it connected to the VM?"
+    echo "Available disks:"
+    lsblk
     exit 1
 fi
-log "Found: $STORAGE_MOUNT/$NIXOS_IMAGE ($(du -h "$STORAGE_MOUNT/$NIXOS_IMAGE" | cut -f1))"
 
-# Step 3: Set up loop device
-log "[3/5] Setting up loop device..."
-LOOP_DEV=$(losetup -f)
-losetup "$LOOP_DEV" "$STORAGE_MOUNT/$NIXOS_IMAGE"
-log "Loop device: $LOOP_DEV"
+# Determine the base disk device from ROCKNIX or STORAGE partition
+if [ -n "$ROCKNIX_DEV" ]; then
+    DISK_DEV=$(echo "$ROCKNIX_DEV" | sed 's/p\?[0-9]*$//')
+else
+    DISK_DEV=$(echo "$STORAGE_DEV" | sed 's/p\?[0-9]*$//')
+fi
 
-# Step 4: Mount NixOS image
-log "[4/5] Mounting NixOS image..."
+log "Found SD card: $DISK_DEV"
+log "Current partition layout:"
+lsblk "$DISK_DEV"
+echo ""
+
+# Step 2: Check if NIXOSROOT partition exists
+log "[2/6] Checking for NIXOSROOT partition..."
+NIXOSROOT_DEV=$(blkid -L "$NIXOSROOT_LABEL" 2>/dev/null || true)
+
+if [ -n "$NIXOSROOT_DEV" ]; then
+    log "Found existing NIXOSROOT partition: $NIXOSROOT_DEV"
+else
+    warn "NIXOSROOT partition not found - will create it"
+    echo ""
+    warn "This will REPARTITION the SD card:"
+    echo "  - Partition 1: ROCKNIX boot (unchanged)"
+    echo "  - Partition 2: STORAGE (largest partition, recreated - DATA WILL BE LOST)"
+    echo "  - Partition 3: NIXOSROOT (64GB, new)"
+    echo ""
+    warn "IMPORTANT: This will destroy existing data on STORAGE!"
+    warn "Backup ROMs and saves from ROCKNIX before continuing!"
+    echo ""
+    echo "Press Ctrl+C now to cancel, or Enter to continue..."
+    read -r
+    echo ""
+
+    # Step 3: Create NIXOSROOT partition
+    log "[3/6] Creating NIXOSROOT partition..."
+
+    # Get partition numbers
+    ROCKNIX_PART_NUM=$(echo "$ROCKNIX_DEV" | grep -o '[0-9]*$')
+    STORAGE_PART_NUM=$(echo "$STORAGE_DEV" | grep -o '[0-9]*$')
+
+    log "ROCKNIX partition: ${DISK_DEV}p${ROCKNIX_PART_NUM}"
+    log "STORAGE partition: ${DISK_DEV}p${STORAGE_PART_NUM}"
+
+    # Unmount STORAGE if mounted
+    if mountpoint -q /mnt/storage 2>/dev/null; then
+        umount /mnt/storage
+    fi
+
+    # Get the end position of ROCKNIX partition and total disk size
+    # Use GB for better sector alignment (parted aligns better with round numbers)
+    ROCKNIX_END=$(parted "$DISK_DEV" unit GB print | grep "^ *$ROCKNIX_PART_NUM" | awk '{print $3}' | sed 's/GB//')
+    DISK_SIZE=$(parted "$DISK_DEV" unit GB print | grep "^Disk " | awk '{print $3}' | sed 's/GB//')
+
+    # Calculate STORAGE end: leave 64GB for NIXOSROOT at the end
+    # Use bc for floating point math and round down to avoid overlap
+    STORAGE_END=$(echo "$DISK_SIZE - 64" | bc)
+    STORAGE_START="${ROCKNIX_END}GB"
+    STORAGE_END_STR="${STORAGE_END}GB"
+
+    log "Partition layout:"
+    log "  Disk size: ${DISK_SIZE}GB"
+    log "  ROCKNIX ends at: ${ROCKNIX_END}GB (p1)"
+    log "  STORAGE: ${STORAGE_START} to ${STORAGE_END_STR} (p2, largest partition)"
+    log "  NIXOSROOT: ${STORAGE_END_STR} to 100% (p3, ~64GB)"
+
+    # Delete old STORAGE partition and create new layout
+    # Use 100% for NIXOSROOT end to let parted handle alignment automatically
+    log "Repartitioning (this may take a moment)..."
+    parted -s "$DISK_DEV" -- \
+        rm "$STORAGE_PART_NUM" \
+        mkpart primary ext4 "$STORAGE_START" "$STORAGE_END_STR" \
+        mkpart primary ext4 "$STORAGE_END_STR" 100%
+
+    # Update partition table
+    partprobe "$DISK_DEV"
+    sleep 2
+
+    # Determine new partition devices (p2 for STORAGE, p3 for NIXOSROOT)
+    if [[ "$DISK_DEV" == *"nvme"* ]] || [[ "$DISK_DEV" == *"mmcblk"* ]]; then
+        NEW_STORAGE_DEV="${DISK_DEV}p2"
+        NIXOSROOT_DEV="${DISK_DEV}p3"
+    else
+        NEW_STORAGE_DEV="${DISK_DEV}2"
+        NIXOSROOT_DEV="${DISK_DEV}3"
+    fi
+
+    log "Created STORAGE partition: $NEW_STORAGE_DEV"
+    log "Created NIXOSROOT partition: $NIXOSROOT_DEV"
+
+    # Format new STORAGE partition WITHOUT modern ext4 features that ROCKNIX kernel doesn't support
+    # This prevents read-only mount issues (see progress.md for details)
+    log "Formatting STORAGE partition (without metadata_csum,64bit for ROCKNIX compatibility)..."
+    mkfs.ext4 -F -L STORAGE -O ^metadata_csum,^64bit "$NEW_STORAGE_DEV"
+fi
+
+# Step 4: Format NIXOSROOT partition
+log "[4/6] Formatting NIXOSROOT partition..."
+if blkid "$NIXOSROOT_DEV" | grep -q "TYPE="; then
+    log "NIXOSROOT already formatted, skipping..."
+else
+    mkfs.ext4 -F -L "$NIXOSROOT_LABEL" "$NIXOSROOT_DEV"
+    log "Formatted as ext4"
+fi
+
+# Step 5: Mount NIXOSROOT
+log "[5/6] Mounting NIXOSROOT..."
 mkdir -p "$NIXOS_MOUNT"
-mount "$LOOP_DEV" "$NIXOS_MOUNT"
-log "Mounted at $NIXOS_MOUNT"
+if mountpoint -q "$NIXOS_MOUNT"; then
+    warn "Already mounted at $NIXOS_MOUNT"
+else
+    mount "$NIXOSROOT_DEV" "$NIXOS_MOUNT"
+    log "Mounted at $NIXOS_MOUNT"
+fi
 
-# Step 5: Install NixOS
-log "[5/5] Running nixos-install..."
+# Step 6: Install NixOS
+log "[6/6] Running nixos-install..."
 echo ""
 warn "This will take a while. Installing NixOS..."
 echo ""
@@ -115,8 +197,6 @@ echo ""
 # Cleanup
 log "Cleaning up..."
 umount "$NIXOS_MOUNT"
-losetup -d "$LOOP_DEV"
-umount "$STORAGE_MOUNT"
 
 echo ""
 log "=== All Done ==="

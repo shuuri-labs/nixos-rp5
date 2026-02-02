@@ -10,42 +10,31 @@ mount_part "$disk" "/storage" "rw,noatime"
 if is_key_pressed $BTN_SELECT; then
   echo "[nixos] Setting up NixOS boot..."
 
-  # Verify storage is mounted
-  echo "[nixos] Checking /storage mount..."
-  mount | grep storage
-  echo "[nixos] Contents of /storage:"
-  ls -la /storage/ | head -20
+  # Find NIXOSROOT partition (p3 - p2 is STORAGE which ROCKNIX expects)
+  echo "[nixos] Looking for NIXOSROOT partition..."
+  NIXOSROOT_DEV=""
 
-  # Check if image exists
-  if [ ! -f /storage/nixos.img ]; then
-    echo "[nixos] ERROR: /storage/nixos.img not found!"
-    echo "[nixos] Full /storage listing:"
-    ls -la /storage/
+  # Try by label first, then common device paths
+  for part in /dev/disk/by-label/NIXOSROOT /dev/mmcblk0p3 /dev/sda3; do
+    if [ -b "$part" ]; then
+      NIXOSROOT_DEV="$part"
+      echo "[nixos] Found NIXOSROOT at: $NIXOSROOT_DEV"
+      break
+    fi
+  done
+
+  if [ -z "$NIXOSROOT_DEV" ]; then
+    echo "[nixos] ERROR: NIXOSROOT partition not found!"
+    echo "[nixos] Available partitions:"
+    ls -l /dev/mmcblk0* /dev/sda* 2>/dev/null || true
     echo "[nixos] Waiting 60 seconds..."
     sleep 60
-  else
-    echo "[nixos] Found image: $(ls -lh /storage/nixos.img)"
   fi
 
-  # Set up loop device - use loop1 since loop0 is used by ROCKNIX SYSTEM
-  echo "[nixos] Setting up loop device (loop1)..."
-  if ! losetup /dev/loop1 /storage/nixos.img; then
-    echo "[nixos] ERROR: losetup loop1 failed, trying loop2..."
-    if ! losetup /dev/loop2 /storage/nixos.img; then
-      echo "[nixos] ERROR: losetup failed on loop1 and loop2!"
-      losetup -a
-      sleep 60
-    fi
-    LOOP_DEV=/dev/loop2
-  else
-    LOOP_DEV=/dev/loop1
-  fi
-  echo "[nixos] Using loop device: $LOOP_DEV"
-
-  # Mount with error checking
+  # Mount NIXOSROOT directly (no loop device needed)
   mkdir -p /nixos
-  echo "[nixos] Mounting NixOS image..."
-  mount -t ext4 $LOOP_DEV /nixos
+  echo "[nixos] Mounting NIXOSROOT partition..."
+  mount -t ext4 "$NIXOSROOT_DEV" /nixos
   MOUNT_RESULT=$?
   echo "[nixos] mount exit code: $MOUNT_RESULT"
 
@@ -66,8 +55,6 @@ if is_key_pressed $BTN_SELECT; then
     echo "[nixos] ERROR: /nixos/nix not found after mount!"
     echo "[nixos] Mount table:"
     mount
-    echo "[nixos] Loop devices:"
-    losetup -a
     echo "[nixos] Waiting 60 seconds to read output..."
     sleep 60
   else

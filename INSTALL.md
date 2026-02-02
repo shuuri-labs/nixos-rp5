@@ -4,10 +4,10 @@ Complete guide for installing NixOS on the Retroid Pocket 5 alongside ROCKNIX.
 
 ## Overview
 
-NixOS lives in an image file on ROCKNIX's STORAGE partition. This approach:
-- Requires no partition modifications
-- Keeps ROCKNIX completely stock
-- Makes NixOS easy to remove (just delete the image file)
+NixOS is installed on a dedicated NIXOSROOT partition alongside ROCKNIX. This approach:
+- Provides better performance (no loop device overhead)
+- Uses a proper partition layout
+- Keeps ROCKNIX and NixOS cleanly separated
 
 ## Prerequisites
 
@@ -20,19 +20,20 @@ NixOS lives in an image file on ROCKNIX's STORAGE partition. This approach:
 
 ## Quick Install (Scripts)
 
-### Step 1: ROCKNIX Setup
+### Step 1: ROCKNIX Setup (Install Boot Hook)
 Boot ROCKNIX, connect to WiFi, then from your computer:
 ```bash
-# SSH and run setup script
+# SSH and run setup script to install boot hook
 ssh root@<rocknix-ip> 'sh -s' < scripts/rocknix-setup.sh
 ```
 
-### Step 2: NixOS Install
+### Step 2: NixOS Install (Partition and Install)
 Power off RP5, put SD card in Linux VM, then:
 ```bash
 cd nixos-rp5
 git pull
 sudo ./scripts/vm-install.sh
+# This will partition the SD card (creating NIXOSROOT) and install NixOS
 ```
 
 ### Step 3: Boot
@@ -42,7 +43,7 @@ Put SD card back in RP5, hold SELECT during boot.
 
 ## Manual Install (Step by Step)
 
-### Step 1: Boot ROCKNIX and Create the Image
+### Step 1: Install the Boot Hook (from ROCKNIX)
 
 First, ensure ROCKNIX boots and works normally. Then SSH into ROCKNIX:
 
@@ -50,70 +51,49 @@ First, ensure ROCKNIX boots and works normally. Then SSH into ROCKNIX:
 # SSH into ROCKNIX (find IP in ROCKNIX network settings)
 ssh root@<rocknix-ip>
 
-# Create the NixOS image file (64GB, adjust as needed)
-cd /storage
-dd if=/dev/zero of=nixos.img bs=1M count=65536 status=progress
+# Remount boot partition as read-write
+mount -o remount,rw /flash
 
-# Format the image as ext4
-mkfs.ext4 -L NIXOSROOT nixos.img
+# Download and install the boot hook
+curl -o /flash/mount-storage.sh https://raw.githubusercontent.com/yourusername/nixos-rp5/scaled-back/boot/mount-storage.sh
+# Or use wget if curl isn't available:
+# wget -O /flash/mount-storage.sh https://raw.githubusercontent.com/yourusername/nixos-rp5/scaled-back/boot/mount-storage.sh
 
-# Verify
-ls -lh nixos.img
-```
+# Make it executable
+chmod 755 /flash/mount-storage.sh
 
-## Step 2: Install the Boot Hook
-
-```bash
-# Still in ROCKNIX SSH session
-# Mount the boot partition
-mkdir -p /tmp/boot
-mount /dev/disk/by-label/ROCKNIX /tmp/boot 2>/dev/null || mount /dev/mmcblk0p1 /tmp/boot
-
-# Download mount-storage.sh to the boot partition
-curl -o /tmp/boot/mount-storage.sh https://raw.githubusercontent.com/yourusername/nixos-rp5/main/boot/mount-storage.sh
-
-# Or use wget if curl isn't available
-# wget -O /tmp/boot/mount-storage.sh https://raw.githubusercontent.com/yourusername/nixos-rp5/main/boot/mount-storage.sh
-
-chmod 755 /tmp/boot/mount-storage.sh
+# Remount as read-only
 sync
-umount /tmp/boot
+mount -o remount,ro /flash
+
+# Power off to prepare for partitioning
+poweroff
 ```
 
-## Step 3: Install NixOS into the Image
+### Step 2: Partition SD Card and Install NixOS (from Linux VM)
 
-From a Linux machine (or VM) with Nix installed:
+Remove the SD card from RP5 and connect it to a Linux machine (or VM) with Nix installed:
 
 ```bash
 # Clone the repo
 git clone https://github.com/yourusername/nixos-rp5.git
 cd nixos-rp5
 
-# Mount STORAGE partition from SD card
-sudo mkdir -p /mnt/storage
-sudo mount /dev/disk/by-label/STORAGE /mnt/storage
+# Run the install script (will partition SD card and install NixOS)
+sudo ./scripts/vm-install.sh
 
-# Set up loop device for the image
-sudo losetup -fP /mnt/storage/nixos.img
-
-# Find which loop device was assigned
-LOOP_DEV=$(losetup -l | grep nixos.img | awk '{print $1}')
-echo "Loop device: $LOOP_DEV"
-
-# Mount the image
-sudo mkdir -p /mnt/nixos
-sudo mount $LOOP_DEV /mnt/nixos
-
-# Install NixOS
-sudo nixos-install --root /mnt/nixos --flake .#rp5
-
-# Cleanup
-sudo umount /mnt/nixos
-sudo losetup -d $LOOP_DEV
-sudo umount /mnt/storage
+# The script will:
+# 1. Find the SD card
+# 2. Recreate STORAGE partition (largest) on p2 (where ROCKNIX expects it)
+# 3. Create NIXOSROOT partition (64GB) on p3
+# 4. Format STORAGE (without metadata_csum/64bit for ROCKNIX compatibility)
+# 5. Format NIXOSROOT as ext4
+# 6. Install NixOS to NIXOSROOT
 ```
 
-## Step 4: Boot into NixOS
+**IMPORTANT:** This will repartition the SD card and destroy existing data on STORAGE. Back up ROMs and saves from ROCKNIX before running this!
+
+### Step 3: Boot into NixOS
 
 Insert the SD card into your RP5, then:
 
@@ -171,17 +151,20 @@ rm /storage/.boot-nixos
 
 ```
 SD Card (512GB example)
-┌─────────────────────────────────────────────────────────┐
-│  Partition 1: ROCKNIX  │     Partition 2: STORAGE       │
-│       (2GB)            │          (~510GB)              │
-│       FAT32            │           ext4                 │
-│                        │                                │
-│  - GRUB                │  - nixos.img (64GB)  ← NixOS   │
-│  - Kernel              │  - ROMs                        │
-│  - mount-storage.sh    │  - ROCKNIX saves               │
-│                        │  - .boot-nixos flag            │
-│                        │  - Steam games                 │
-└─────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────┐
+│ Part 1: ROCKNIX │ Part 2: STORAGE              │ Part 3: NIXOSROOT       │
+│     (2GB)       │     (~446GB)                 │      (64GB)             │
+│     FAT32       │      ext4                    │       ext4              │
+│                 │                              │                         │
+│ - GRUB          │ - ROMs                       │ - NixOS system          │
+│ - Kernel        │ - ROCKNIX saves              │ - /nix/store            │
+│ - Boot hook     │ - .boot-nixos flag           │ - User files            │
+│                 │ - Steam games (if using      │                         │
+│                 │   NixOS Steam session)       │                         │
+└───────────────────────────────────────────────────────────────────────────┘
+
+Note: STORAGE stays on partition 2 where ROCKNIX expects it.
+      STORAGE is formatted without metadata_csum/64bit for ROCKNIX compatibility.
 ```
 
 ---
@@ -204,30 +187,36 @@ If you don't have a Linux machine:
 ### NixOS won't boot
 - Ensure SELECT is held during the entire boot sequence
 - Check that `mount-storage.sh` is on the boot partition
-- Verify the image exists: `ls -la /storage/nixos.img`
+- Verify NIXOSROOT partition exists: `lsblk | grep NIXOSROOT`
 
 ### Boot loops to ROCKNIX
 - Failsafe triggered after 3 failed boots
 - Clear counter: `rm /storage/.nixos-boot-attempts`
 - Check NixOS installation is complete
 
-### Image not found error
+### Partition not found error
 ```bash
-# From ROCKNIX, verify image exists and has correct permissions
-ls -la /storage/nixos.img
-# Should show ~64GB file
+# From Linux VM, verify partitions exist
+lsblk /dev/mmcblk0  # or your SD card device
+# Should show ROCKNIX (p1), STORAGE (p2), NIXOSROOT (p3)
 ```
 
 ### Removing NixOS
-To completely remove NixOS:
+To completely remove NixOS and restore single STORAGE partition:
+
+**WARNING:** This requires repartitioning and will destroy all data!
+
+```bash
+# From Linux VM (not ROCKNIX)
+sudo parted /dev/mmcblk0
+  rm 3          # Remove NIXOSROOT
+  resizepart 2 100%  # Expand STORAGE to fill disk
+  quit
+```
+
+To keep partitions but just disable NixOS boot:
 ```bash
 # From ROCKNIX
-rm /storage/nixos.img
 rm /storage/.boot-nixos
-rm /storage/.nixos-boot-attempts
-
-# Remove boot hook (optional)
-mount /dev/mmcblk0p1 /tmp/boot
-rm /tmp/boot/mount-storage.sh
-umount /tmp/boot
+# And don't hold SELECT during boot
 ```

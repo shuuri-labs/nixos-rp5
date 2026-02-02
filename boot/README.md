@@ -15,7 +15,7 @@ Chain-boot script that allows NixOS to boot from ROCKNIX.
 ### Purpose
 Hooks into ROCKNIX's init process to optionally chain-boot into NixOS.
 
-NixOS lives in an image file (`/storage/nixos.img`) on ROCKNIX's STORAGE partition - no partition modifications needed.
+NixOS lives on a dedicated NIXOSROOT partition (typically `/dev/mmcblk0p3`) alongside ROCKNIX and STORAGE partitions.
 
 ### Installation
 
@@ -59,9 +59,7 @@ Check boot triggers ──→ No trigger ──→ Continue ROCKNIX boot
      ↓ (trigger found)
 Check boot failsafe
      ↓
-Mount STORAGE partition
-     ↓
-Loop-mount /storage/nixos.img
+Find and mount NIXOSROOT partition
      ↓
 Verify it's a NixOS root (/nix exists)
      ↓
@@ -100,32 +98,15 @@ Protects against boot loops:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BTN_SELECT` | 314 | SELECT button keycode |
-| `NIXOS_IMAGE_PATH` | /storage/nixos.img | Path to NixOS image file |
-| `MAX_BOOT_ATTEMPTS` | 3 | Failsafe threshold |
-| `DEBUG_MODE` | 0 | Enable verbose logging |
 
-### Key Functions
+### How It Works
 
-**is_key_pressed($keycode):**
-Checks if a key is currently held using evtest.
-
-**should_boot_nixos():**
-Checks all boot triggers (button, flag file, cmdline).
-
-**check_boot_counter():**
-Implements boot failsafe counter.
-
-**setup_loop_device($image_path):**
-Sets up loop device for the NixOS image file.
-
-**mount_nixos_root($nixroot):**
-Mounts NixOS from the image file.
-
-**find_nixos_init($nixroot):**
-Locates NixOS systemd init in the mounted root.
-
-**boot_nixos():**
-Main boot sequence - mounts, bind-mounts, and switch_root.
+1. **Trigger Detection**: Checks if SELECT button is pressed during boot
+2. **Find NIXOSROOT**: Looks for NIXOSROOT partition by label or device path
+3. **Mount**: Directly mounts the NIXOSROOT partition (no loop device needed)
+4. **Verify**: Checks that `/nix` directory exists
+5. **Bind-mount Resources**: Makes ROCKNIX kernel modules and firmware available
+6. **Switch Root**: Transfers control to NixOS systemd
 
 ### Troubleshooting
 
@@ -133,16 +114,17 @@ Main boot sequence - mounts, bind-mounts, and switch_root.
 ```bash
 # Boot to ROCKNIX and check:
 
-# 1. Is the image file present?
-ls -la /storage/nixos.img
+# 1. Is the NIXOSROOT partition present?
+lsblk | grep NIXOSROOT
+blkid | grep NIXOSROOT
 
 # 2. Check boot counter
 cat /storage/.nixos-boot-attempts
 
 # 3. Try manual mount
-losetup -f /storage/nixos.img
-mount /dev/loop0 /mnt
-ls /mnt/nix  # Should exist
+mkdir -p /tmp/nixos
+mount /dev/mmcblk0p3 /tmp/nixos  # p3 is NIXOSROOT, p2 is STORAGE
+ls /tmp/nixos/nix  # Should exist
 ```
 
 **Stuck at boot:**

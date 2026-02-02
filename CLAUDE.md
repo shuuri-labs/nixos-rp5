@@ -69,7 +69,7 @@ nixpkgs-fmt **/*.nix
 
 See **[INSTALL.md](INSTALL.md)** for complete instructions. Summary:
 
-1. **Partition SD card**: 2GB ROCKNIX boot, 64GB NIXOSROOT, rest for STORAGE
+1. **Partition SD card**: 2GB ROCKNIX boot (p1), largest STORAGE (p2), 64GB NIXOSROOT (p3)
 2. **Install boot hook**: Copy `boot/mount-storage.sh` to ROCKNIX boot partition
 3. **Build and deploy**: `nixos-install --root /mnt/nixos --flake .#rp5`
 4. **Boot**: Hold SELECT during boot, or create `/storage/.boot-nixos`

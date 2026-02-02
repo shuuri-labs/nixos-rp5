@@ -184,16 +184,20 @@ userconfig-setup[523]: ln: /storage/.config/emulationstation/locale: No such fil
 **Root cause (likely):**
 Modern Ubuntu's `mkfs.ext4` creates filesystems with features like `metadata_csum` and `64bit` that the ROCKNIX kernel (based on LibreELEC/JELOS) may not fully support. When the kernel encounters incompatible features, it mounts read-only as a safety measure.
 
-**Solution: Image-Based Boot**
-NixOS now lives in an image file on ROCKNIX's STORAGE partition:
+**Solution: Dedicated Partition**
+NixOS now lives on a dedicated NIXOSROOT partition created during installation:
 
 ```bash
-# From ROCKNIX SSH:
-dd if=/dev/zero of=/storage/nixos.img bs=1M count=65536
-mkfs.ext4 -L NIXOSROOT /storage/nixos.img
+# From Linux VM with SD card attached:
+# The vm-install.sh script partitions the SD card:
+# - Partition 1: ROCKNIX boot (unchanged)
+# - Partition 2: STORAGE (largest, ext4 without metadata_csum/64bit) - ROCKNIX expects this on p2
+# - Partition 3: NIXOSROOT (64GB, ext4)
 ```
 
-This avoids all partition/filesystem compatibility issues. See INSTALL.md for full instructions.
+STORAGE is formatted with `-O ^metadata_csum,^64bit` flags to ensure ROCKNIX's kernel can mount it read-write without issues.
+
+This provides better performance than image-based boot and cleanly separates ROCKNIX and NixOS. See INSTALL.md for full instructions.
 
 ---
 

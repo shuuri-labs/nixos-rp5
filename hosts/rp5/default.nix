@@ -43,33 +43,21 @@
   };
 
   # Filesystems
+  # Note: /rocknix/storage is pre-mounted by the boot script (mount --move)
+  # The boot script also mounts kernel modules/firmware via bind-mount
   fileSystems = {
     "/" = {
       device = "/dev/disk/by-label/NIXOSROOT";
       fsType = "ext4";
       options = [ "noatime" "nodiratime" ];
     };
-
-    # ROCKNIX resources (mounted by switch_root script)
-    "/rocknix/flash" = {
-      device = "/dev/disk/by-label/ROCKNIX";
-      fsType = "vfat";
-      options = [ "ro" "noatime" "nofail" ];
-    };
-
-    "/rocknix/storage" = {
-      device = "/dev/disk/by-label/STORAGE";
-      fsType = "ext4";
-      options = [ "rw" "noatime" "nofail" ];
-    };
+    # ROCKNIX mounts are handled by mount-storage.sh boot script via mount --move
+    # Don't define them here to avoid conflicts
   };
 
-  # Swap (zram-based, no swap partition needed)
-  zramSwap = {
-    enable = true;
-    memoryPercent = 50;
-    algorithm = "zstd";
-  };
+  # Swap (disabled - ROCKNIX kernel may not have zram module)
+  # If you want swap, create a swap file on /rocknix/storage
+  zramSwap.enable = false;
 
   # Networking
   networking = {
@@ -124,7 +112,8 @@
       "bluetooth"
     ];
     # Default password: "gamer" (change on first login!)
-    initialPassword = "gamer";
+    # Using hashedPassword instead of initialPassword for reliability
+    initialHashedPassword = "$6$GnJIvD2NYL4.t4yQ$A/Zw5MnSQPjZr4jeLT3TUYuv6SrVAI3LoPT7ktGF.OmL52ZgRzfbPkrg0T.11hHgyAjqNG3vywFde3AWA6IS01";
   };
 
   # Sudo without password for gamer (handheld convenience)
@@ -231,12 +220,13 @@
   # Boot success service (clears failsafe counter)
   systemd.services.nixos-boot-success = {
     description = "NixOS Boot Success Handler";
-    wantedBy = [ "graphical.target" ];
-    after = [ "graphical.target" ];
+    wantedBy = [ "multi-user.target" ];
+    after = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = "${pkgs.bash}/bin/bash -c 'rm -f /rocknix/storage/.nixos-boot-attempts && logger -t boot-success \"NixOS boot successful\"'";
+      # Remove boot attempts counter if it exists (path may vary based on mount setup)
+      ExecStart = "${pkgs.bash}/bin/bash -c 'for p in /rocknix/storage /storage; do [ -f \"$p/.nixos-boot-attempts\" ] && rm -f \"$p/.nixos-boot-attempts\" && break; done; logger -t boot-success \"NixOS boot successful\"; exit 0'";
     };
   };
 
