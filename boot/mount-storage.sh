@@ -34,11 +34,31 @@ if is_key_pressed $BTN_SELECT; then
     /usr/bin/busybox mount --move /$f /nixos/$f
   done
 
-  # Resolve the actual systemd binary path (follow symlinks before switch_root)
-  SYSTEM_PATH=$(readlink -f /nixos/nix/var/nix/profiles/system)
-  # Remove /nixos prefix to get path relative to new root
-  SYSTEM_REL=${SYSTEM_PATH#/nixos}
-  SYSTEMD_PATH="$SYSTEM_REL/systemd/lib/systemd/systemd"
+  # Debug: show what we're working with
+  echo "[nixos] NixOS root contents:"
+  ls -la /nixos/
+  echo "[nixos] Nix profiles:"
+  ls -la /nixos/nix/var/nix/profiles/ 2>/dev/null || echo "profiles not found"
+  echo "[nixos] System profile target:"
+  readlink -f /nixos/nix/var/nix/profiles/system 2>/dev/null || echo "system profile not found"
 
-  exec /usr/bin/busybox switch_root /nixos $SYSTEMD_PATH --system --show-status=1
+  SYSTEM_PATH=$(readlink -f /nixos/nix/var/nix/profiles/system)
+  echo "[nixos] SYSTEM_PATH: $SYSTEM_PATH"
+
+  if [ -d "$SYSTEM_PATH" ]; then
+    echo "[nixos] System path contents:"
+    ls -la "$SYSTEM_PATH/"
+  fi
+
+  # Try to find init or systemd
+  echo "[nixos] Looking for init..."
+  ls -la "$SYSTEM_PATH/init" 2>/dev/null || echo "init not found"
+  ls -la "$SYSTEM_PATH/systemd" 2>/dev/null || echo "systemd link not found"
+
+  echo "[nixos] Attempting switch_root to /bin/sh for debug..."
+  echo "[nixos] Press enter to continue or wait 10 seconds..."
+  sleep 10
+
+  # Try shell first to verify switch_root works
+  exec /usr/bin/busybox switch_root /nixos /bin/sh
 fi
