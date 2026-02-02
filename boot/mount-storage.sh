@@ -10,11 +10,21 @@ mount_part "$disk" "/storage" "rw,noatime"
 if is_key_pressed $BTN_SELECT; then
   echo "[nixos] Setting up NixOS boot..."
 
+  # Verify storage is mounted
+  echo "[nixos] Checking /storage mount..."
+  mount | grep storage
+  echo "[nixos] Contents of /storage:"
+  ls -la /storage/ | head -20
+
   # Check if image exists
   if [ ! -f /storage/nixos.img ]; then
     echo "[nixos] ERROR: /storage/nixos.img not found!"
+    echo "[nixos] Full /storage listing:"
     ls -la /storage/
-    sleep 30
+    echo "[nixos] Waiting 60 seconds..."
+    sleep 60
+  else
+    echo "[nixos] Found image: $(ls -lh /storage/nixos.img)"
   fi
 
   # Set up loop device with error checking
@@ -27,21 +37,34 @@ if is_key_pressed $BTN_SELECT; then
   # Mount with error checking
   mkdir -p /nixos
   echo "[nixos] Mounting NixOS image..."
-  if ! mount -t ext4 /dev/loop0 /nixos; then
-    echo "[nixos] ERROR: mount failed!"
-    echo "[nixos] Trying without -t ext4..."
-    mount /dev/loop0 /nixos || echo "[nixos] mount still failed!"
-    sleep 30
+  mount -t ext4 /dev/loop0 /nixos
+  MOUNT_RESULT=$?
+  echo "[nixos] mount exit code: $MOUNT_RESULT"
+
+  if [ $MOUNT_RESULT -ne 0 ]; then
+    echo "[nixos] ERROR: mount failed with code $MOUNT_RESULT"
+    echo "[nixos] dmesg tail:"
+    dmesg | tail -20
+    echo "[nixos] Waiting 60 seconds..."
+    sleep 60
   fi
 
   # Verify mount worked
-  echo "[nixos] Checking mount..."
+  echo "[nixos] Checking mount result..."
+  echo "[nixos] /nixos contents:"
   ls -la /nixos/
+
   if [ ! -d /nixos/nix ]; then
     echo "[nixos] ERROR: /nixos/nix not found after mount!"
-    echo "[nixos] Mount info:"
-    mount | grep nixos
-    sleep 30
+    echo "[nixos] Mount table:"
+    mount
+    echo "[nixos] Loop devices:"
+    losetup -a
+    echo "[nixos] Waiting 60 seconds to read output..."
+    sleep 60
+  else
+    echo "[nixos] SUCCESS: /nixos/nix exists!"
+    ls -la /nixos/nix/
   fi
 
   # Move ROCKNIX mounts to storage
@@ -65,31 +88,26 @@ if is_key_pressed $BTN_SELECT; then
     /usr/bin/busybox mount --move /$f /nixos/$f
   done
 
-  # Debug: show what we're working with
-  echo "[nixos] NixOS root contents:"
-  ls -la /nixos/
-  echo "[nixos] Nix profiles:"
-  ls -la /nixos/nix/var/nix/profiles/ 2>/dev/null || echo "profiles not found"
-  echo "[nixos] System profile target:"
-  readlink -f /nixos/nix/var/nix/profiles/system 2>/dev/null || echo "system profile not found"
-
+  # Find and exec NixOS init
+  echo "[nixos] Looking for NixOS init..."
   SYSTEM_PATH=$(readlink -f /nixos/nix/var/nix/profiles/system)
-  echo "[nixos] SYSTEM_PATH: $SYSTEM_PATH"
+  echo "[nixos] System profile: $SYSTEM_PATH"
 
-  if [ -d "$SYSTEM_PATH" ]; then
-    echo "[nixos] System path contents:"
-    ls -la "$SYSTEM_PATH/"
+  if [ -z "$SYSTEM_PATH" ] || [ ! -d "$SYSTEM_PATH" ]; then
+    echo "[nixos] ERROR: System profile not found!"
+    echo "[nixos] Profiles dir:"
+    ls -la /nixos/nix/var/nix/profiles/ 2>/dev/null || echo "no profiles dir"
+    sleep 60
   fi
 
-  # Try to find init or systemd
-  echo "[nixos] Looking for init..."
-  ls -la "$SYSTEM_PATH/init" 2>/dev/null || echo "init not found"
-  ls -la "$SYSTEM_PATH/systemd" 2>/dev/null || echo "systemd link not found"
+  # Use the init wrapper
+  INIT_PATH="/nix/var/nix/profiles/system/init"
+  echo "[nixos] Using init: $INIT_PATH"
+  echo "[nixos] Init exists check:"
+  ls -la /nixos$INIT_PATH 2>/dev/null || echo "init not found at $INIT_PATH"
 
-  echo "[nixos] Attempting switch_root to /bin/sh for debug..."
-  echo "[nixos] Press enter to continue or wait 10 seconds..."
-  sleep 10
+  echo "[nixos] Executing switch_root in 5 seconds..."
+  sleep 5
 
-  # Try shell first to verify switch_root works
-  exec /usr/bin/busybox switch_root /nixos /bin/sh
+  exec /usr/bin/busybox switch_root /nixos $INIT_PATH
 fi
