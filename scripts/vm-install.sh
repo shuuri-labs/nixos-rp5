@@ -107,9 +107,19 @@ else
     log "ROCKNIX partition: ${DISK_DEV}p${ROCKNIX_PART_NUM}"
     log "STORAGE partition: ${DISK_DEV}p${STORAGE_PART_NUM}"
 
-    # Unmount STORAGE if mounted
-    if mountpoint -q /mnt/storage 2>/dev/null; then
-        umount /mnt/storage
+    # Unmount STORAGE partition if it's mounted anywhere
+    log "Ensuring STORAGE partition is unmounted..."
+    if mount | grep -q "$STORAGE_DEV"; then
+        STORAGE_MOUNT_POINT=$(mount | grep "$STORAGE_DEV" | awk '{print $3}')
+        log "STORAGE is mounted at $STORAGE_MOUNT_POINT, unmounting..."
+        umount "$STORAGE_DEV" || {
+            error "Failed to unmount STORAGE partition"
+            error "Please manually unmount it first: sudo umount $STORAGE_DEV"
+            exit 1
+        }
+        log "Unmounted successfully"
+    else
+        log "STORAGE not mounted, proceeding..."
     fi
 
     # Get the end position of ROCKNIX partition and total disk size
@@ -132,10 +142,16 @@ else
     # Delete old STORAGE partition and create new layout
     # Use 100% for NIXOSROOT end to let parted handle alignment automatically
     log "Repartitioning (this may take a moment)..."
-    parted -s "$DISK_DEV" -- \
+    # Use yes to auto-confirm any prompts, and -s for script mode
+    yes | parted ---pretend-input-tty -s "$DISK_DEV" -- \
         rm "$STORAGE_PART_NUM" \
         mkpart primary ext4 "$STORAGE_START" "$STORAGE_END_STR" \
-        mkpart primary ext4 "$STORAGE_END_STR" 100%
+        mkpart primary ext4 "$STORAGE_END_STR" 100% \
+        2>/dev/null || true
+
+    # Give parted a moment to complete
+    sync
+    sleep 1
 
     # Update partition table
     partprobe "$DISK_DEV"
