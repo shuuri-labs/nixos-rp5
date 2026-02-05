@@ -26,10 +26,13 @@
   # Bootloader and initrd are handled by modules/rocknix-compat/kernel-modules.nix
   # Only set options that are specific to this host here
   boot = {
-    # Kernel parameters (passed via ROCKNIX kernel cmdline)
+    # Kernel parameters with debug logging enabled
     kernelParams = [
-      "quiet"
-      "loglevel=3"
+      # Debug logging (remove "quiet" and increase loglevel for troubleshooting)
+      "systemd.log_level=debug"
+      "systemd.log_target=console"
+      "console=tty1"
+      "loglevel=7"
     ];
 
     # Required sysctl for Steam/games
@@ -69,14 +72,6 @@
     # Firewall (disabled for gaming, enable if needed)
     firewall.enable = false;
   };
-
-  # Enable detailed boot logging for debugging
-  boot.kernelParams = [
-    "systemd.log_level=debug"
-    "systemd.log_target=console"
-    "console=tty1"
-    "loglevel=7"
-  ];
 
   # Enable systemd debug logging
   systemd.extraConfig = ''
