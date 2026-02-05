@@ -70,9 +70,12 @@
     firewall.enable = false;
   };
 
-  # Disable NetworkManager-wait-online to prevent boot hangs
-  # We don't need to wait for network before boot completes
+  # Disable all network wait services to prevent boot hangs
   systemd.services.NetworkManager-wait-online.enable = false;
+  systemd.network.wait-online.enable = false;
+
+  # Speed up boot by not waiting for network
+  systemd.services.systemd-networkd-wait-online.enable = false;
 
   # Bluetooth
   hardware.bluetooth = {

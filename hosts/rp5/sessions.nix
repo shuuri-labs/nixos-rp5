@@ -74,6 +74,16 @@ in {
     };
   };
 
+  # Ensure greetd waits for display to be ready
+  systemd.services.greetd = {
+    after = [ "multi-user.target" "plymouth-quit.service" ];
+    wants = [ "plymouth-quit.service" ];
+    serviceConfig = {
+      # Give system time to settle before starting session
+      ExecStartPre = "${pkgs.coreutils}/bin/sleep 2";
+    };
+  };
+
   # Session desktop files for greetd
   environment.etc = {
     "greetd/sessions/gamescope-steam.desktop".text = ''
