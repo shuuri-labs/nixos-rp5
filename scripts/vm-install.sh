@@ -237,6 +237,16 @@ log "System profile: $SYSTEM_PATH"
 
 if [ ! -f "$SYSTEM_PATH/init" ]; then
     error "System init not found at $SYSTEM_PATH/init"
+    echo ""
+    log "Contents of system profile:"
+    ls -la "$SYSTEM_PATH/"
+    echo ""
+    log "Checking for systemd:"
+    find "$SYSTEM_PATH" -name "systemd" -type f 2>/dev/null | head -10
+    echo ""
+    log "Checking for any init-like files:"
+    find "$SYSTEM_PATH" -name "init*" -o -name "activate" -o -name "switch-to-configuration" 2>/dev/null | head -10
+    echo ""
     error "Installation verification FAILED"
     exit 1
 fi
