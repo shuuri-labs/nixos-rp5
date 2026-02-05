@@ -205,9 +205,47 @@ git config --global --add safe.directory "$(pwd)" 2>/dev/null || true
 
 # Run nixos-install
 nixos-install --root "$NIXOS_MOUNT" --flake "$FLAKE_REF" --no-root-passwd
+INSTALL_RESULT=$?
 
 echo ""
-log "=== Installation Complete ==="
+if [ $INSTALL_RESULT -ne 0 ]; then
+    error "nixos-install failed with exit code $INSTALL_RESULT"
+    exit 1
+fi
+
+# Verify installation
+log "Verifying installation..."
+if [ ! -d "$NIXOS_MOUNT/nix/var/nix/profiles" ]; then
+    error "Profiles directory not created!"
+    error "Installation may have failed"
+    exit 1
+fi
+
+if [ ! -L "$NIXOS_MOUNT/nix/var/nix/profiles/system" ]; then
+    error "System profile symlink not created!"
+    error "This is critical - NixOS won't boot without it"
+    echo ""
+    log "Profiles directory contents:"
+    ls -la "$NIXOS_MOUNT/nix/var/nix/profiles/" || true
+    echo ""
+    error "Installation verification FAILED"
+    exit 1
+fi
+
+SYSTEM_PATH=$(readlink -f "$NIXOS_MOUNT/nix/var/nix/profiles/system")
+log "System profile: $SYSTEM_PATH"
+
+if [ ! -f "$SYSTEM_PATH/init" ]; then
+    error "System init not found at $SYSTEM_PATH/init"
+    error "Installation verification FAILED"
+    exit 1
+fi
+
+log "✓ System profile verified"
+log "✓ Init found at: $SYSTEM_PATH/init"
+
+echo ""
+log "=== Installation Complete and Verified ==="
 echo ""
 
 # Cleanup
