@@ -4,25 +4,54 @@
 final: prev: {
   # Custom packages for RP5
 
-  # Session switcher utility
+  # Session switcher utility (no authentication required)
   rp5-session-switch = final.writeShellScriptBin "rp5-session-switch" ''
     #!/bin/bash
-    # Session switcher for RP5
-    # Usage: rp5-session-switch {steam|esde|plasma}
+    # Session switcher for RP5 - switch between sessions without logging out
+    # Usage: rp5-session-switch {steam|plasma}
+
+    set -e
 
     case "$1" in
       steam)
-        echo "Switching to Steam session..."
-        systemctl --user stop plasma-session.service 2>/dev/null || true
+        echo "Switching to Steam (Gamescope) session..."
+        # Stop Plasma if running
+        if systemctl --user is-active --quiet plasma-session.service; then
+          echo "Stopping Plasma session..."
+          systemctl --user stop plasma-session.service
+        fi
+        # Start Steam session
+        echo "Starting Steam session..."
         systemctl --user start gamescope-steam.service
+        echo "Switched to Steam session"
         ;;
       plasma)
-        echo "Switching to Plasma session..."
-        systemctl --user stop gamescope-steam.service 2>/dev/null || true
+        echo "Switching to Plasma (Desktop) session..."
+        # Stop Steam if running
+        if systemctl --user is-active --quiet gamescope-steam.service; then
+          echo "Stopping Steam session..."
+          systemctl --user stop gamescope-steam.service
+        fi
+        # Start Plasma session
+        echo "Starting Plasma session..."
         systemctl --user start plasma-session.service
+        echo "Switched to Plasma session"
+        ;;
+      status)
+        echo "Session status:"
+        if systemctl --user is-active --quiet gamescope-steam.service; then
+          echo "  Steam (Gamescope): ACTIVE"
+        else
+          echo "  Steam (Gamescope): inactive"
+        fi
+        if systemctl --user is-active --quiet plasma-session.service; then
+          echo "  Plasma (Desktop): ACTIVE"
+        else
+          echo "  Plasma (Desktop): inactive"
+        fi
         ;;
       *)
-        echo "Usage: rp5-session-switch {steam|plasma}"
+        echo "Usage: rp5-session-switch {steam|plasma|status}"
         exit 1
         ;;
     esac

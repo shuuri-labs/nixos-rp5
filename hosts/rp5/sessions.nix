@@ -62,21 +62,15 @@ let
   '';
 
 in {
-  # greetd display manager
+  # greetd display manager with autologin
   services.greetd = {
     enable = true;
     settings = {
-      default_session = {
-        command = "${pkgs.greetd.tuigreet}/bin/tuigreet --time --remember --sessions /etc/greetd/sessions";
-        user = "greeter";
+      # Autologin to Plasma desktop mode (no login screen)
+      initial_session = {
+        command = "${plasmaSession}";
+        user = "gamer";
       };
-
-      # Auto-login option (enable for dedicated gaming device)
-      # Uncomment to auto-start Steam session on boot
-      # initial_session = {
-      #   command = "${gamescopeSteamSession}";
-      #   user = "gamer";
-      # };
     };
   };
 
@@ -154,22 +148,45 @@ in {
     };
   };
 
-  # Session user services
+  # Session user services (for session switching without login)
   systemd.user.services = {
-    # Gamescope Steam as a user service (for session switching)
+    # Gamescope Steam session service
     gamescope-steam = {
       description = "Gamescope Steam Session";
-      wantedBy = [ ];  # Started on demand
+      wantedBy = [ ];  # Started on demand via rp5-session-switch
+      conflicts = [ "plasma-session.service" ];
       serviceConfig = {
+        Type = "simple";
         ExecStart = "${gamescopeSteamSession}";
         Restart = "on-failure";
         RestartSec = 3;
+        KillMode = "mixed";
+        KillSignal = "SIGTERM";
       };
       environment = {
         XDG_RUNTIME_DIR = "/run/user/%U";
+        XDG_SESSION_TYPE = "wayland";
       };
     };
 
+    # Plasma Wayland session service
+    plasma-session = {
+      description = "KDE Plasma Wayland Session";
+      wantedBy = [ ];  # Started on demand via rp5-session-switch
+      conflicts = [ "gamescope-steam.service" ];
+      serviceConfig = {
+        Type = "simple";
+        ExecStart = "${plasmaSession}";
+        Restart = "on-failure";
+        RestartSec = 3;
+        KillMode = "mixed";
+        KillSignal = "SIGTERM";
+      };
+      environment = {
+        XDG_RUNTIME_DIR = "/run/user/%U";
+        XDG_SESSION_TYPE = "wayland";
+      };
+    };
   };
 
   # Programs configuration
