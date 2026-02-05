@@ -70,6 +70,20 @@
     firewall.enable = false;
   };
 
+  # Enable detailed boot logging for debugging
+  boot.kernelParams = [
+    "systemd.log_level=debug"
+    "systemd.log_target=console"
+    "console=tty1"
+    "loglevel=7"
+  ];
+
+  # Enable systemd debug logging
+  systemd.extraConfig = ''
+    LogLevel=debug
+    LogTarget=console
+  '';
+
   # Disable all network wait services to prevent boot hangs
   systemd.services.NetworkManager-wait-online.enable = false;
   systemd.network.wait-online.enable = false;

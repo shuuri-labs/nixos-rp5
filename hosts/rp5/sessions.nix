@@ -1,10 +1,15 @@
 { config, lib, pkgs, ... }:
 
 let
-  # Gamescope Steam session launch script
+  # Gamescope Steam session launch script with debug logging
   gamescopeSteamSession = pkgs.writeShellScript "gamescope-steam-session" ''
     #!/bin/bash
-    set -e
+    set -ex  # Enable verbose output and exit on error
+
+    echo "[gamescope-session] Starting Gamescope Steam session..."
+    echo "[gamescope-session] Date: $(date)"
+    echo "[gamescope-session] User: $(whoami)"
+    echo "[gamescope-session] UID: $(id)"
 
     # Environment setup
     export XDG_SESSION_TYPE=wayland
@@ -19,9 +24,13 @@ let
     export STEAM_RUNTIME=1
     export STEAM_RUNTIME_PREFER_HOST_LIBRARIES=0
 
-    # MangoHud (optional, uncomment to enable)
-    # export MANGOHUD=1
-    # export MANGOHUD_CONFIG="fps,frametime,cpu_temp,gpu_temp,ram"
+    echo "[gamescope-session] Environment configured"
+    echo "[gamescope-session] XDG_RUNTIME_DIR: $XDG_RUNTIME_DIR"
+
+    # Check if required binaries exist
+    echo "[gamescope-session] Checking for required binaries..."
+    ls -la ${pkgs.gamescope}/bin/gamescope || echo "gamescope not found!"
+    which steam || echo "steam not found!"
 
     # Create control FIFO for FPS adjustment
     CONTROL_FIFO="/run/user/$(id -u)/gamescope-control"
@@ -31,6 +40,7 @@ let
     # Default FPS limit
     FPS_LIMIT=''${GAMESCOPE_FPS_LIMIT:-60}
 
+    echo "[gamescope-session] Starting gamescope with FPS limit: $FPS_LIMIT"
     # Start gamescope with Steam in Big Picture mode
     exec ${pkgs.gamescope}/bin/gamescope \
       -e \
@@ -44,10 +54,15 @@ let
       steam -gamepadui -steamos -steamdeck
   '';
 
-  # Plasma Wayland session script
+  # Plasma Wayland session script with debug logging
   plasmaSession = pkgs.writeShellScript "plasma-wayland-session" ''
     #!/bin/bash
-    set -e
+    set -ex  # Enable verbose output and exit on error
+
+    echo "[plasma-session] Starting Plasma Wayland session..."
+    echo "[plasma-session] Date: $(date)"
+    echo "[plasma-session] User: $(whoami)"
+    echo "[plasma-session] UID: $(id)"
 
     # Environment
     export XDG_SESSION_TYPE=wayland
@@ -56,6 +71,17 @@ let
     # Vulkan settings
     export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
 
+    echo "[plasma-session] Environment configured"
+    echo "[plasma-session] XDG_RUNTIME_DIR: $XDG_RUNTIME_DIR"
+    echo "[plasma-session] DISPLAY: $DISPLAY"
+    echo "[plasma-session] WAYLAND_DISPLAY: $WAYLAND_DISPLAY"
+
+    # Check if required binaries exist
+    echo "[plasma-session] Checking for required binaries..."
+    ls -la ${pkgs.plasma-workspace}/bin/startplasma-wayland || echo "startplasma-wayland not found!"
+    ls -la ${pkgs.plasma-workspace}/libexec/plasma-dbus-run-session-if-needed || echo "plasma-dbus-run-session-if-needed not found!"
+
+    echo "[plasma-session] Starting Plasma..."
     # Start Plasma Wayland
     exec ${pkgs.plasma-workspace}/libexec/plasma-dbus-run-session-if-needed \
       ${pkgs.plasma-workspace}/bin/startplasma-wayland
@@ -74,13 +100,16 @@ in {
     };
   };
 
-  # Ensure greetd waits for display to be ready
+  # Ensure greetd waits for display to be ready with detailed logging
   systemd.services.greetd = {
     after = [ "multi-user.target" "plymouth-quit.service" ];
     wants = [ "plymouth-quit.service" ];
     serviceConfig = {
       # Give system time to settle before starting session
       ExecStartPre = "${pkgs.coreutils}/bin/sleep 2";
+      # Enable detailed logging
+      StandardOutput = "journal+console";
+      StandardError = "journal+console";
     };
   };
 
@@ -158,7 +187,7 @@ in {
     };
   };
 
-  # Session user services (for session switching without login)
+  # Session user services (for session switching without login) with detailed logging
   systemd.user.services = {
     # Gamescope Steam session service
     gamescope-steam = {
@@ -172,6 +201,10 @@ in {
         RestartSec = 3;
         KillMode = "mixed";
         KillSignal = "SIGTERM";
+        # Detailed logging
+        StandardOutput = "journal";
+        StandardError = "journal";
+        SyslogIdentifier = "gamescope-steam";
       };
       environment = {
         XDG_RUNTIME_DIR = "/run/user/%U";
@@ -191,6 +224,10 @@ in {
         RestartSec = 3;
         KillMode = "mixed";
         KillSignal = "SIGTERM";
+        # Detailed logging
+        StandardOutput = "journal";
+        StandardError = "journal";
+        SyslogIdentifier = "plasma-session";
       };
       environment = {
         XDG_RUNTIME_DIR = "/run/user/%U";
