@@ -223,36 +223,45 @@ fi
 
 if [ ! -L "$NIXOS_MOUNT/nix/var/nix/profiles/system" ]; then
     error "System profile symlink not created!"
-    error "This is critical - NixOS won't boot without it"
     echo ""
     log "Profiles directory contents:"
     ls -la "$NIXOS_MOUNT/nix/var/nix/profiles/" || true
-    echo ""
     error "Installation verification FAILED"
     exit 1
 fi
 
-SYSTEM_PATH=$(readlink -f "$NIXOS_MOUNT/nix/var/nix/profiles/system")
-log "System profile: $SYSTEM_PATH"
+# Read the symlink target (absolute path inside NixOS root, e.g. /nix/store/...)
+SYSTEM_TARGET=$(readlink "$NIXOS_MOUNT/nix/var/nix/profiles/system")
+log "System profile symlink -> $SYSTEM_TARGET"
 
-if [ ! -f "$SYSTEM_PATH/init" ]; then
-    error "System init not found at $SYSTEM_PATH/init"
+# Check the actual path on the mounted filesystem
+SYSTEM_PATH_ON_HOST="$NIXOS_MOUNT$SYSTEM_TARGET"
+log "Checking on host at: $SYSTEM_PATH_ON_HOST"
+
+if [ ! -d "$SYSTEM_PATH_ON_HOST" ]; then
+    error "System profile directory not found at $SYSTEM_PATH_ON_HOST"
     echo ""
-    log "Contents of system profile:"
-    ls -la "$SYSTEM_PATH/"
-    echo ""
-    log "Checking for systemd:"
-    find "$SYSTEM_PATH" -name "systemd" -type f 2>/dev/null | head -10
+    log "Profiles directory contents:"
+    ls -la "$NIXOS_MOUNT/nix/var/nix/profiles/" || true
+    error "Installation verification FAILED"
+    exit 1
+fi
+
+log "System profile contents:"
+ls -la "$SYSTEM_PATH_ON_HOST/"
+
+if [ ! -f "$SYSTEM_PATH_ON_HOST/init" ]; then
+    error "System init not found at $SYSTEM_PATH_ON_HOST/init"
     echo ""
     log "Checking for any init-like files:"
-    find "$SYSTEM_PATH" -name "init*" -o -name "activate" -o -name "switch-to-configuration" 2>/dev/null | head -10
+    find "$SYSTEM_PATH_ON_HOST" -maxdepth 1 -name "init*" -o -name "activate" -o -name "sw" 2>/dev/null
     echo ""
     error "Installation verification FAILED"
     exit 1
 fi
 
-log "✓ System profile verified"
-log "✓ Init found at: $SYSTEM_PATH/init"
+log "System profile verified"
+log "Init found at: $SYSTEM_TARGET/init"
 
 echo ""
 log "=== Installation Complete and Verified ==="
