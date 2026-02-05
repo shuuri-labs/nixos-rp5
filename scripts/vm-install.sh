@@ -230,11 +230,14 @@ if [ ! -L "$NIXOS_MOUNT/nix/var/nix/profiles/system" ]; then
     exit 1
 fi
 
-# Read the symlink target (absolute path inside NixOS root, e.g. /nix/store/...)
-SYSTEM_TARGET=$(readlink "$NIXOS_MOUNT/nix/var/nix/profiles/system")
-log "System profile symlink -> $SYSTEM_TARGET"
+# Follow the symlink chain: system -> system-N-link -> /nix/store/...
+SYSTEM_LINK=$(readlink "$NIXOS_MOUNT/nix/var/nix/profiles/system")
+log "system -> $SYSTEM_LINK"
 
-# Check the actual path on the mounted filesystem
+SYSTEM_TARGET=$(readlink "$NIXOS_MOUNT/nix/var/nix/profiles/$SYSTEM_LINK")
+log "$SYSTEM_LINK -> $SYSTEM_TARGET"
+
+# Prepend mount point to the absolute /nix/store/... path
 SYSTEM_PATH_ON_HOST="$NIXOS_MOUNT$SYSTEM_TARGET"
 log "Checking on host at: $SYSTEM_PATH_ON_HOST"
 
@@ -250,12 +253,8 @@ fi
 log "System profile contents:"
 ls -la "$SYSTEM_PATH_ON_HOST/"
 
-if [ ! -f "$SYSTEM_PATH_ON_HOST/init" ]; then
+if [ ! -f "$SYSTEM_PATH_ON_HOST/init" ] && [ ! -L "$SYSTEM_PATH_ON_HOST/init" ]; then
     error "System init not found at $SYSTEM_PATH_ON_HOST/init"
-    echo ""
-    log "Checking for any init-like files:"
-    find "$SYSTEM_PATH_ON_HOST" -maxdepth 1 -name "init*" -o -name "activate" -o -name "sw" 2>/dev/null
-    echo ""
     error "Installation verification FAILED"
     exit 1
 fi
