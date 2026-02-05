@@ -34,12 +34,10 @@
 
   config = lib.mkIf config.rp5.rocknix.enable {
     # ==========================================================================
-    # CRITICAL: Container-style boot configuration
-    # This tells NixOS we're in an environment where boot is handled externally
+    # CRITICAL: Chain-boot configuration for ROCKNIX
+    # We DON'T use boot.isContainer because we need the init wrapper for switch_root
+    # Instead, we manually disable the boot components we don't need
     # ==========================================================================
-
-    # Mark as container to skip most boot requirements
-    boot.isContainer = true;
 
     # Disable kernel building - we use ROCKNIX kernel via bind-mount
     boot.kernel.enable = false;
@@ -56,7 +54,6 @@
       grub.enable = lib.mkForce false;
       systemd-boot.enable = lib.mkForce false;
       generic-extlinux-compatible.enable = lib.mkForce false;
-      initScript.enable = true;  # Required when grub is disabled
     };
 
     # ==========================================================================
@@ -80,13 +77,6 @@
         touch $out/bzImage
       ''
     );
-
-    # ==========================================================================
-    # RE-ENABLE: Things that boot.isContainer disables but we need
-    # ==========================================================================
-
-    console.enable = lib.mkForce true;
-    services.udev.enable = lib.mkForce true;
 
     # ==========================================================================
     # ROCKNIX Integration
