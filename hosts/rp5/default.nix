@@ -26,13 +26,9 @@
   # Bootloader and initrd are handled by modules/rocknix-compat/kernel-modules.nix
   # Only set options that are specific to this host here
   boot = {
-    # Kernel parameters with debug logging enabled
     kernelParams = [
-      # Debug logging (remove "quiet" and increase loglevel for troubleshooting)
-      "systemd.log_level=debug"
-      "systemd.log_target=console"
-      "console=tty1"
-      "loglevel=7"
+      "quiet"
+      "loglevel=3"
     ];
 
     # Required sysctl for Steam/games
@@ -73,11 +69,14 @@
     firewall.enable = false;
   };
 
-  # Enable systemd debug logging
-  systemd.extraConfig = ''
-    LogLevel=debug
-    LogTarget=console
-  '';
+  # Enable SSH for remote access
+  services.openssh = {
+    enable = true;
+    settings = {
+      PermitRootLogin = "no";
+      PasswordAuthentication = true;
+    };
+  };
 
   # Disable all network wait services to prevent boot hangs
   systemd.services.NetworkManager-wait-online.enable = false;
