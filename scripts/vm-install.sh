@@ -268,6 +268,7 @@ echo ""
 
 # Cleanup
 log "Cleaning up..."
+sync
 umount "$NIXOS_MOUNT"
 
 echo ""
