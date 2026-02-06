@@ -92,8 +92,8 @@ in {
   services.greetd = {
     enable = true;
     settings = {
-      # Autologin to Plasma desktop mode (no login screen)
-      initial_session = {
+      # Default session (required by greetd)
+      default_session = {
         command = "${plasmaSession}";
         user = "gamer";
       };
