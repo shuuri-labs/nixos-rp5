@@ -94,7 +94,6 @@ let
     # Steam environment
     export STEAMOS=1
     export STEAM_RUNTIME=1
-    export STEAM_RUNTIME_PREFER_HOST_LIBRARIES=0
 
     # Vulkan
     export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
