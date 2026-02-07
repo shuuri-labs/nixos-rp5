@@ -80,7 +80,13 @@ let
   steam-wrapper = pkgs.writeShellScriptBin "steam" ''
     STEAM_DIR="$HOME/.local/share/Steam"
 
-    if [ ! -f "$STEAM_DIR/steam.sh" ]; then
+    # steam.sh exists after first successful bootstrap; bin_steam.sh is the
+    # initial entry point shipped in the .deb that performs the bootstrap
+    if [ -f "$STEAM_DIR/steam.sh" ]; then
+      LAUNCH="$STEAM_DIR/steam.sh"
+    elif [ -f "$STEAM_DIR/bin_steam.sh" ]; then
+      LAUNCH="$STEAM_DIR/bin_steam.sh"
+    else
       echo "Steam not found. Run 'install-steam' first."
       exit 1
     fi
@@ -101,7 +107,7 @@ let
     mkdir -p "$MESA_SHADER_CACHE_DIR"
 
     cd "$STEAM_DIR"
-    exec "$STEAM_DIR/steam.sh" "$@"
+    exec "$LAUNCH" "$@"
   '';
 
   # Gamepad UI wrapper
