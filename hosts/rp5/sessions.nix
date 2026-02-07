@@ -92,8 +92,13 @@ in {
   services.greetd = {
     enable = true;
     settings = {
-      # Default session (required by greetd)
+      # Default session: text login (fallback if graphical session fails)
       default_session = {
+        command = "${pkgs.greetd.greetd}/bin/agreety --cmd ${pkgs.bash}/bin/bash";
+      };
+
+      # Auto-start Plasma on first boot (runs once, won't loop if it crashes)
+      initial_session = {
         command = "${plasmaSession}";
         user = "gamer";
       };
