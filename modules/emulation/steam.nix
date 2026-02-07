@@ -165,16 +165,45 @@ let
     echo "(First launch takes several minutes — be patient!)"
     echo ""
 
+    # ── Sanitize NixOS environment ──
+    # NixOS sets env vars pointing to /nix/store aarch64 libraries and
+    # /run/current-system paths. These leak into FEXBash and then into
+    # pressure-vessel (Steam's bwrap sandbox), causing failures:
+    #   - dconf .so from /nix/store can't load (aarch64 in x86_64 context)
+    #   - MangoHud aarch64 Vulkan layer confuses pressure-vessel
+    #   - Vulkan ICD at /run/opengl-driver/ invisible inside container
+
+    # Graphics/Vulkan — aarch64 drivers can't be used by x86_64 processes
+    unset VK_ICD_FILENAMES
+    unset VK_LAYER_PATH
+    unset VK_ADD_LAYER_PATH
+    unset __EGL_VENDOR_LIBRARY_FILENAMES
+    unset __EGL_VENDOR_LIBRARY_DIRS
+    unset LIBGL_DRIVERS_PATH
+    unset LIBVA_DRIVERS_PATH
+
+    # GLib/GTK/dconf — NixOS paths reference aarch64 .so files
+    unset GIO_EXTRA_MODULES
+    unset GIO_MODULE_DIR
+    unset GSETTINGS_SCHEMAS_PATH
+    unset GI_TYPELIB_PATH
+    unset GTK_PATH
+    unset GTK_MODULES
+    unset GTK_IM_MODULE
+
+    # Reset XDG_DATA_DIRS to FHS defaults (NixOS version includes /nix paths)
+    export XDG_DATA_DIRS="/usr/local/share:/usr/share"
+
+    # MangoHud — disable completely (aarch64 layer can't load in x86_64)
+    export DISABLE_MANGOHUD=1
+    export MANGOHUD=0
+
     # Shader cache
     export MESA_SHADER_CACHE_DIR="$HOME/.cache/mesa_shader_cache"
     mkdir -p "$MESA_SHADER_CACHE_DIR"
 
     # DXVK async for Proton
     export DXVK_ASYNC=1
-
-    # Don't load aarch64 MangoHud layer inside x86_64 process
-    export DISABLE_MANGOHUD=1
-    export MANGOHUD=0
 
     # Launch Steam through FEXBash
     # FEXBash provides the x86_64 rootfs environment. Steam runs as an x86_64
