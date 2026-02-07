@@ -46,6 +46,11 @@ in {
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = pkgs.writeShellScript "register-fex-binfmt" ''
+        # Mount binfmt_misc if not already mounted
+        if [ ! -f /proc/sys/fs/binfmt_misc/register ]; then
+          mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
+        fi
+
         # Remove stale entries if they exist
         for entry in FEX-x86_64 FEX-i386; do
           [ -f "/proc/sys/fs/binfmt_misc/$entry" ] && echo -1 > "/proc/sys/fs/binfmt_misc/$entry"
