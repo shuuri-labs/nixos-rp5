@@ -31,9 +31,11 @@ This document tracks the implementation progress and to-do items for the NixOS R
 - [x] Session switching via `rp5-session-switch`
 
 ### Emulation Layer
-- [x] FEX-Emu/Box64 binfmt registration for x86_64
+- [x] FEX-Emu binfmt registration for x86_64/i386 (openBinary=false for NixOS compat)
 - [x] RootFS setup helper (`fex-rootfs-setup`)
-- [x] Steam wrapper scripts (`install-steam`, `steam`, `steam-gamepadui`)
+- [x] Steam wrapper scripts (`install-steam`, `steam-setup`, `steam`, `steam-minimal`, `steam-gamepadui`)
+- [x] FEXBash-based Steam launcher with NixOS environment sanitization
+- [ ] **BLOCKED**: FEX rootfs overlay not providing x86_64 libraries (see Known Issues)
 
 ### System Overlay
 - [x] HOME button long-press detection (800ms)
@@ -54,10 +56,12 @@ This document tracks the implementation progress and to-do items for the NixOS R
 ## To-Do List
 
 ### High Priority
-- [ ] Test Steam installation on actual hardware
-- [ ] Verify FEX-Emu/Box64 binfmt registration works correctly
+- [x] ~~Test Steam installation on actual hardware~~ — install-steam works
+- [x] ~~Verify FEX-Emu binfmt registration works correctly~~ — binfmt registered, x86_64 ELFs run through FEXInterpreter
+- [ ] **Fix FEX rootfs overlay** — rootfs exists but FEX doesn't overlay it onto the filesystem (see Known Issues)
+- [ ] Get Steam UI rendering — steamwebhelper needs x86_64 mesa/llvmpipe from rootfs
 - [ ] Test Gamescope session launch and FPS limiting
-- [ ] Verify KDE Plasma session starts properly
+- [x] ~~Verify KDE Plasma session starts properly~~ — Plasma 5.27.11 on Wayland confirmed working
 - [ ] Run Netbird in desktop mode (Plasma session)
 
 ### Medium Priority
@@ -118,8 +122,11 @@ This document tracks the implementation progress and to-do items for the NixOS R
 - [ ] Auto-login works (when configured)
 
 ### Steam Tests
-- [ ] `install-steam` downloads and extracts Steam
-- [ ] Steam launches via Box64/FEX-Emu
+- [x] `install-steam` downloads and extracts Steam
+- [x] `steam-setup` removes conflicting runtime libraries
+- [x] Steam client process starts via FEXBash
+- [x] Steam connects to Valve servers, downloads manifests
+- [ ] Steam UI renders (blocked on rootfs/mesa)
 - [ ] Steam recognizes gamepad input
 - [ ] Games launch in Gamescope
 - [ ] Proton/Wine games work
@@ -201,7 +208,62 @@ This provides better performance than image-based boot and cleanly separates ROC
 
 ---
 
+### FEX-Emu Rootfs Overlay Not Working on NixOS
+
+**Status:** Blocked — needs investigation
+
+**Summary:**
+FEX-Emu can run x86_64 binaries (instruction translation works), but its rootfs filesystem overlay does not function. The x86_64 rootfs (Ubuntu 24.04) is extracted and FEX reads its config, but processes running under FEX see the NixOS host filesystem instead of the rootfs. This means no x86_64 shared libraries (mesa, libGL, libc, etc.) are available, so Steam's steamwebhelper (Chromium-based UI) cannot create a GL context and crashes.
+
+**What works:**
+- FEX-Emu binfmt registration (x86_64 ELFs dispatched to FEXInterpreter)
+- FEXInterpreter can execute x86_64 binaries from the rootfs path
+- Steam client process starts, connects to Valve servers, downloads manifests
+- FEX config is read (`~/.config/fex-emu/Config.json` with `{"Config":{"RootFS":"Ubuntu_24_04"}}`)
+- NixOS env sanitization removes leaking /nix/store paths from FEXBash environment
+
+**What doesn't work:**
+- Rootfs filesystem overlay — `/usr/lib/x86_64-linux-gnu/` is empty/inaccessible inside FEXBash
+- `FEXBash -c "cat /etc/os-release"` shows NixOS instead of Ubuntu
+- `FEXBash -c "uname -m"` shows `aarch64` instead of `x86_64`
+- steamwebhelper crashes with "Failed creating offscreen shared JS context" (no mesa/llvmpipe)
+
+**Rootfs location:** `~/.fex-emu/RootFS/Ubuntu_24_04/` (extracted from squashfs, valid x86_64 rootfs with `/usr/lib/` contents confirmed)
+
+**Diagnostics done:**
+- `FEX_ROOTFS` environment variable — no effect
+- `~/.config/fex-emu/Config.json` — FEX reads it (confirmed via error message showing "Ubuntu_24_04") but overlay still doesn't activate
+- NixOS FEX package (`pkgs.unstable.fex`) is an aarch64 binary linked against /nix/store libraries
+- FEXBash binary runs host's `/bin/bash` (aarch64, via our tmpfiles symlink) rather than rootfs's x86_64 bash
+- `/run/current-system/sw/share/fex-emu/` contains GuestThunks and ThunksDB.json
+
+**Suspected causes:**
+1. NixOS FEX package may build/configure FEX differently — rootfs overlay may need additional setup
+2. FEXBash finds `/bin/bash` on the host (our aarch64 symlink) before checking the rootfs
+3. FEX's rootfs overlay may require squashfuse (which doesn't work) or a specific mount setup
+4. The NixOS package's FEX binary may have rootfs thunking disabled or misconfigured
+
+**Next steps to investigate:**
+- Check the nixpkgs FEX package definition for NixOS-specific patches or config
+- Try `strace` on FEXInterpreter to see what paths it accesses during rootfs setup
+- Check if removing the `/bin/bash` symlink allows FEXBash to use rootfs bash
+- Try building FEX from source with explicit rootfs support
+- Ask in FEX-Emu Discord/GitHub about NixOS rootfs overlay issues
+- Check if `squashfuse` package would allow FEX to use the .sqsh directly
+
+---
+
 ## Changelog
+
+### 2026-02-07
+- Rewrote FEX-Emu module: uses `pkgs.unstable.fex`, proper binfmt with `openBinary=false`
+- Rewrote Steam module: FEXBash-based launcher, install-steam, steam-setup, steam-minimal
+- Fixed binfmt: NixOS wrapper breaks O flag, `openBinary=false` is required
+- Fixed /bin/bash: NixOS doesn't have it, added tmpfiles symlink for Steam scripts
+- Added NixOS env sanitization: unset GIO_EXTRA_MODULES, VK_LAYER_PATH, etc. before FEXBash
+- Added LIBGL_ALWAYS_SOFTWARE=1 and -cef-disable-gpu flags for steamwebhelper
+- Steam client starts and connects to Valve servers but UI doesn't render (rootfs overlay blocked)
+- Identified root cause: FEX rootfs overlay not functioning on NixOS (see Known Issues)
 
 ### 2026-02-01
 - Scaled back project to focus on core functionality
