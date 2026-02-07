@@ -50,8 +50,13 @@
       fsType = "ext4";
       options = [ "noatime" "nodiratime" ];
     };
-    # ROCKNIX mounts are handled by mount-storage.sh boot script via mount --move
-    # Don't define them here to avoid conflicts
+    # ROCKNIX storage - mounted by boot script via mount --move
+    # Declaring here so systemd unmounts it cleanly on shutdown
+    "/rocknix/storage" = {
+      device = "/dev/disk/by-label/STORAGE";
+      fsType = "ext4";
+      options = [ "noatime" "nofail" ];
+    };
   };
 
   # Swap (disabled - ROCKNIX kernel may not have zram module)

@@ -255,6 +255,17 @@ in {
     xwayland.enable = true;
   };
 
+  # Disable screen locking (gaming handheld)
+  environment.etc."xdg/kscreenlockerrc".text = ''
+    [Daemon]
+    Autolock=false
+    LockOnResume=false
+  '';
+  environment.etc."xdg/kdeglobals".text = ''
+    [KDE Action Restrictions]
+    action/lock_screen=false
+  '';
+
   # Qt theming
   qt = {
     enable = true;
