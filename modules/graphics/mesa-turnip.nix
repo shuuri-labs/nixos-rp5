@@ -22,10 +22,9 @@
 
   config = lib.mkIf (config.rp5.graphics.enable or true) {
     # Graphics/OpenGL
-    hardware.opengl = {
+    hardware.graphics = {
       enable = true;
-      driSupport = true;
-      driSupport32Bit = config.rp5.graphics.enable32Bit or true;
+      enable32Bit = config.rp5.graphics.enable32Bit or true;
 
       extraPackages = with pkgs; [
         # Mesa with Freedreno/Turnip

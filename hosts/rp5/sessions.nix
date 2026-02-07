@@ -1,15 +1,12 @@
 { config, lib, pkgs, ... }:
 
 let
-  # Gamescope Steam session launch script with debug logging
+  kdePackages = pkgs.kdePackages;
+
+  # Gamescope Steam session launch script
   gamescopeSteamSession = pkgs.writeShellScript "gamescope-steam-session" ''
     #!/bin/bash
-    set -ex  # Enable verbose output and exit on error
-
-    echo "[gamescope-session] Starting Gamescope Steam session..."
-    echo "[gamescope-session] Date: $(date)"
-    echo "[gamescope-session] User: $(whoami)"
-    echo "[gamescope-session] UID: $(id)"
+    set -ex
 
     # Environment setup
     export XDG_SESSION_TYPE=wayland
@@ -24,14 +21,6 @@ let
     export STEAM_RUNTIME=1
     export STEAM_RUNTIME_PREFER_HOST_LIBRARIES=0
 
-    echo "[gamescope-session] Environment configured"
-    echo "[gamescope-session] XDG_RUNTIME_DIR: $XDG_RUNTIME_DIR"
-
-    # Check if required binaries exist
-    echo "[gamescope-session] Checking for required binaries..."
-    ls -la ${pkgs.gamescope}/bin/gamescope || echo "gamescope not found!"
-    which steam || echo "steam not found!"
-
     # Create control FIFO for FPS adjustment
     CONTROL_FIFO="/run/user/$(id -u)/gamescope-control"
     rm -f "$CONTROL_FIFO"
@@ -40,7 +29,6 @@ let
     # Default FPS limit
     FPS_LIMIT=''${GAMESCOPE_FPS_LIMIT:-60}
 
-    echo "[gamescope-session] Starting gamescope with FPS limit: $FPS_LIMIT"
     # Start gamescope with Steam in Big Picture mode
     exec ${pkgs.gamescope}/bin/gamescope \
       -e \
@@ -54,32 +42,31 @@ let
       steam -gamepadui -steamos -steamdeck
   '';
 
-  # Plasma Wayland session script with debug logging
+  # Plasma Wayland session script
   plasmaSession = pkgs.writeShellScript "plasma-wayland-session" ''
     #!/bin/bash
-    set -ex  # Enable verbose output and exit on error
-
-    echo "[plasma-session] Starting Plasma Wayland session..."
-    echo "[plasma-session] Date: $(date)"
-    echo "[plasma-session] User: $(whoami)"
-    echo "[plasma-session] UID: $(id)"
+    set -ex
 
     # Vulkan settings
     export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
 
     # Start Plasma Wayland
-    exec ${pkgs.plasma-workspace}/libexec/plasma-dbus-run-session-if-needed \
-      ${pkgs.plasma-workspace}/bin/startplasma-wayland
+    exec ${kdePackages.plasma-workspace}/libexec/plasma-dbus-run-session-if-needed \
+      ${kdePackages.plasma-workspace}/bin/startplasma-wayland
   '';
 
 in {
+  # Plasma 6 desktop (handles all KDE paths, plugins, env vars)
+  services.desktopManager.plasma6.enable = true;
+  services.displayManager.sddm.enable = false;  # We use greetd
+
   # greetd display manager with autologin
   services.greetd = {
     enable = true;
     settings = {
       # Default session: text login (fallback if graphical session fails)
       default_session = {
-        command = "${pkgs.greetd.greetd}/bin/agreety --cmd ${pkgs.bash}/bin/bash";
+        command = "${pkgs.greetd}/bin/agreety --cmd ${pkgs.bash}/bin/bash";
       };
 
       # Auto-start Plasma on first boot (runs once, won't loop if it crashes)
@@ -90,14 +77,12 @@ in {
     };
   };
 
-  # Ensure greetd waits for display to be ready with detailed logging
+  # Ensure greetd waits for display to be ready
   systemd.services.greetd = {
     after = [ "multi-user.target" "plymouth-quit.service" ];
     wants = [ "plymouth-quit.service" ];
     serviceConfig = {
-      # Give system time to settle before starting session
       ExecStartPre = "${pkgs.coreutils}/bin/sleep 2";
-      # Enable detailed logging
       StandardOutput = "journal+console";
       StandardError = "journal+console";
     };
@@ -120,19 +105,29 @@ in {
       Exec=${plasmaSession}
       Type=Application
     '';
+
+    # Disable screen locking (gaming handheld)
+    "xdg/kscreenlockerrc".text = ''
+      [Daemon]
+      Autolock=false
+      LockOnResume=false
+    '';
+    "xdg/kdeglobals".text = ''
+      [KDE Action Restrictions]
+      action/lock_screen=false
+    '';
   };
 
-  # Additional packages for sessions (Plasma packages provided by the module)
+  # Additional packages (Plasma provided by the module)
   environment.systemPackages = with pkgs; [
-    # greetd utilities
-    greetd.tuigreet
+    tuigreet
 
     # Extra Plasma apps
-    konsole            # Terminal
-    dolphin            # File manager
-    kate               # Text editor
-    ark                # Archive manager
-    spectacle          # Screenshots
+    kdePackages.konsole
+    kdePackages.dolphin
+    kdePackages.kate
+    kdePackages.ark
+    kdePackages.spectacle
 
     # Wayland utilities
     wl-clipboard
@@ -142,10 +137,10 @@ in {
   # XDG portals for Wayland apps
   xdg.portal = {
     enable = true;
-    wlr.enable = true;  # For gamescope/wlroots
+    wlr.enable = true;
     extraPortals = [
-      pkgs.xdg-desktop-portal-kde  # For Plasma
-      pkgs.xdg-desktop-portal-gtk  # Fallback
+      kdePackages.xdg-desktop-portal-kde
+      pkgs.xdg-desktop-portal-gtk
     ];
   };
 
@@ -155,7 +150,7 @@ in {
     packages = with pkgs; [
       noto-fonts
       noto-fonts-cjk-sans
-      noto-fonts-emoji
+      noto-fonts-color-emoji
       liberation_ttf
       dejavu_fonts
     ];
@@ -167,12 +162,11 @@ in {
     };
   };
 
-  # Session user services (for session switching without login) with detailed logging
+  # Session user services (for session switching)
   systemd.user.services = {
-    # Gamescope Steam session service
     gamescope-steam = {
       description = "Gamescope Steam Session";
-      wantedBy = [ ];  # Started on demand via rp5-session-switch
+      wantedBy = [ ];
       conflicts = [ "plasma-session.service" ];
       serviceConfig = {
         Type = "simple";
@@ -181,7 +175,6 @@ in {
         RestartSec = 3;
         KillMode = "mixed";
         KillSignal = "SIGTERM";
-        # Detailed logging
         StandardOutput = "journal";
         StandardError = "journal";
         SyslogIdentifier = "gamescope-steam";
@@ -192,10 +185,9 @@ in {
       };
     };
 
-    # Plasma Wayland session service
     plasma-session = {
       description = "KDE Plasma Wayland Session";
-      wantedBy = [ ];  # Started on demand via rp5-session-switch
+      wantedBy = [ ];
       conflicts = [ "gamescope-steam.service" ];
       serviceConfig = {
         Type = "simple";
@@ -204,7 +196,6 @@ in {
         RestartSec = 3;
         KillMode = "mixed";
         KillSignal = "SIGTERM";
-        # Detailed logging
         StandardOutput = "journal";
         StandardError = "journal";
         SyslogIdentifier = "plasma-session";
@@ -216,30 +207,9 @@ in {
     };
   };
 
-  # Programs configuration
+  # Programs
   programs = {
-    # Enable dconf for GNOME/GTK settings
     dconf.enable = true;
-
-    # XWayland for X11 app compatibility
     xwayland.enable = true;
-  };
-
-  # Disable screen locking (gaming handheld)
-  environment.etc."xdg/kscreenlockerrc".text = ''
-    [Daemon]
-    Autolock=false
-    LockOnResume=false
-  '';
-  environment.etc."xdg/kdeglobals".text = ''
-    [KDE Action Restrictions]
-    action/lock_screen=false
-  '';
-
-  # Qt theming
-  qt = {
-    enable = true;
-    platformTheme = "kde";
-    style = "breeze";
   };
 }

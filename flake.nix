@@ -2,18 +2,12 @@
   description = "NixOS configuration for Retroid Pocket 5 (Snapdragon 865/SM8250)";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     nixpkgs-unstable.url = "github:NixOS/nixpkgs/nixos-unstable";
 
     home-manager = {
-      url = "github:nix-community/home-manager/release-24.05";
+      url = "github:nix-community/home-manager/release-25.11";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    # FEX-Emu source (for custom packaging)
-    fex-emu-src = {
-      url = "github:FEX-Emu/FEX";
-      flake = false;
     };
   };
 

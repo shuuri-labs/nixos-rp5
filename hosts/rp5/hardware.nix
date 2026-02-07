@@ -16,7 +16,7 @@
     enableAllFirmware = false;
 
     # Graphics - handled by mesa-turnip module
-    opengl.enable = true;
+    graphics.enable = true;
   };
 
   # Console

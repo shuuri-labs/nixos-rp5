@@ -16,7 +16,7 @@
 
   # System identity
   networking.hostName = "rp5";
-  system.stateVersion = "24.05";
+  system.stateVersion = "25.11";
 
   # Timezone and locale
   time.timeZone = "UTC";  # Change to your timezone
@@ -114,7 +114,7 @@
   };
 
   # Disable PulseAudio (using PipeWire)
-  hardware.pulseaudio.enable = false;
+  services.pulseaudio.enable = false;
 
   # Security / Realtime audio
   security.rtkit.enable = true;
@@ -168,7 +168,6 @@
 
     # Graphics tools
     vulkan-tools
-    glxinfo
     mesa-demos
 
     # Network tools
@@ -249,11 +248,6 @@
       ExecStart = "${pkgs.bash}/bin/bash -c 'for p in /rocknix/storage /storage; do [ -f \"$p/.nixos-boot-attempts\" ] && rm -f \"$p/.nixos-boot-attempts\" && break; done; logger -t boot-success \"NixOS boot successful\"; exit 0'";
     };
   };
-
-  # Plasma 5 desktop (handles all KDE paths, plugins, env vars)
-  services.xserver.enable = true;
-  services.xserver.desktopManager.plasma5.enable = true;
-  services.displayManager.sddm.enable = false;  # We use greetd
 
   # DBus for system control
   services.dbus.enable = true;
