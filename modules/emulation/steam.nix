@@ -116,6 +116,11 @@ let
   '';
 
 in {
+  # Steam scripts use #!/bin/bash shebangs — NixOS doesn't have /bin/bash by default
+  systemd.tmpfiles.rules = [
+    "L+ /bin/bash - - - - ${pkgs.bash}/bin/bash"
+  ];
+
   environment.systemPackages = [
     install-steam
     steam-wrapper
