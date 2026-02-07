@@ -213,11 +213,26 @@ let
     # FEXBash provides the x86_64 rootfs environment. Steam runs as an x86_64
     # process with FEX translating syscalls. binfmt_misc handles child processes.
     # steam.sh is preferred (full client); bin_steam.sh is the initial bootstrapper.
-    if [ -f "$STEAM_DIR/steam.sh" ]; then
-      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./steam.sh $*"
-    else
-      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./bin_steam.sh $*"
+    #
+    # -cef-disable-gpu: tell steamwebhelper's Chromium not to use GPU
+    # -cef-disable-sandbox: disable Chromium sandbox (conflicts with FEX/binfmt)
+    # -no-browser: skip CEF entirely, use old VGUI (set via --no-browser flag)
+    STEAM_ARGS="-cef-disable-gpu -cef-disable-sandbox"
+    if [ "$1" = "--no-browser" ]; then
+      STEAM_ARGS="-no-browser"
+      shift
     fi
+
+    if [ -f "$STEAM_DIR/steam.sh" ]; then
+      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./steam.sh $STEAM_ARGS $*"
+    else
+      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./bin_steam.sh $STEAM_ARGS $*"
+    fi
+  '';
+
+  # Minimal mode — skip the web browser entirely (old VGUI interface)
+  steam-minimal = pkgs.writeShellScriptBin "steam-minimal" ''
+    exec steam --no-browser "$@"
   '';
 
   # Gamepad UI wrapper
@@ -240,6 +255,7 @@ in {
     install-steam
     steam-setup
     steam-wrapper
+    steam-minimal
     steam-gamepadui
 
     pkgs.curl
