@@ -64,28 +64,9 @@ let
     echo "[plasma-session] User: $(whoami)"
     echo "[plasma-session] UID: $(id)"
 
-    # Environment
-    export XDG_SESSION_TYPE=wayland
-    export QT_QPA_PLATFORM=wayland
-
-    # Ensure kwin_wayland is in PATH
-    export PATH="${pkgs.kwin}/bin:$PATH"
-
     # Vulkan settings
     export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
 
-    echo "[plasma-session] Environment configured"
-    echo "[plasma-session] kwin_wayland: $(which kwin_wayland 2>/dev/null || echo NOT FOUND)"
-    echo "[plasma-session] XDG_RUNTIME_DIR: $XDG_RUNTIME_DIR"
-    echo "[plasma-session] DISPLAY: $DISPLAY"
-    echo "[plasma-session] WAYLAND_DISPLAY: $WAYLAND_DISPLAY"
-
-    # Check if required binaries exist
-    echo "[plasma-session] Checking for required binaries..."
-    ls -la ${pkgs.plasma-workspace}/bin/startplasma-wayland || echo "startplasma-wayland not found!"
-    ls -la ${pkgs.plasma-workspace}/libexec/plasma-dbus-run-session-if-needed || echo "plasma-dbus-run-session-if-needed not found!"
-
-    echo "[plasma-session] Starting Plasma..."
     # Start Plasma Wayland
     exec ${pkgs.plasma-workspace}/libexec/plasma-dbus-run-session-if-needed \
       ${pkgs.plasma-workspace}/bin/startplasma-wayland
@@ -141,20 +122,12 @@ in {
     '';
   };
 
-  # Packages for sessions
+  # Additional packages for sessions (Plasma packages provided by the module)
   environment.systemPackages = with pkgs; [
     # greetd utilities
     greetd.tuigreet
 
-    # Plasma desktop
-    plasma-workspace
-    plasma-desktop
-    kwin                # Wayland compositor (required for startplasma-wayland)
-    plasma-nm          # Network manager applet
-    plasma-pa          # PulseAudio/PipeWire applet
-    bluedevil          # Bluetooth applet
-    powerdevil         # Power management
-    kscreen            # Display configuration
+    # Extra Plasma apps
     konsole            # Terminal
     dolphin            # File manager
     kate               # Text editor
@@ -164,9 +137,6 @@ in {
     # Wayland utilities
     wl-clipboard
     xdg-utils
-
-    # XWayland (for compatibility)
-    xwayland
   ];
 
   # XDG portals for Wayland apps

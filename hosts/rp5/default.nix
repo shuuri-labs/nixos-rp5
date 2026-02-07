@@ -250,6 +250,11 @@
     };
   };
 
+  # Plasma 5 desktop (handles all KDE paths, plugins, env vars)
+  services.xserver.enable = true;
+  services.xserver.desktopManager.plasma5.enable = true;
+  services.displayManager.sddm.enable = false;  # We use greetd
+
   # DBus for system control
   services.dbus.enable = true;
 
