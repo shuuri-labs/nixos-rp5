@@ -68,10 +68,14 @@ let
     export XDG_SESSION_TYPE=wayland
     export QT_QPA_PLATFORM=wayland
 
+    # Ensure kwin_wayland is in PATH
+    export PATH="${pkgs.kwin}/bin:$PATH"
+
     # Vulkan settings
     export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
 
     echo "[plasma-session] Environment configured"
+    echo "[plasma-session] kwin_wayland: $(which kwin_wayland 2>/dev/null || echo NOT FOUND)"
     echo "[plasma-session] XDG_RUNTIME_DIR: $XDG_RUNTIME_DIR"
     echo "[plasma-session] DISPLAY: $DISPLAY"
     echo "[plasma-session] WAYLAND_DISPLAY: $WAYLAND_DISPLAY"
@@ -145,6 +149,7 @@ in {
     # Plasma desktop
     plasma-workspace
     plasma-desktop
+    kwin                # Wayland compositor (required for startplasma-wayland)
     plasma-nm          # Network manager applet
     plasma-pa          # PulseAudio/PipeWire applet
     bluedevil          # Bluetooth applet
