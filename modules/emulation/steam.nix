@@ -95,8 +95,14 @@ let
     export STEAMOS=1
     export STEAM_RUNTIME=1
 
-    # Vulkan
+    # Vulkan — point to the host ARM64 Turnip driver
     export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
+
+    # Expose NixOS paths into Steam's pressure-vessel container
+    export PRESSURE_VESSEL_FILESYSTEMS_RO="/nix/store:/run/opengl-driver:/run/current-system/sw"
+
+    # Don't load aarch64 MangoHud layer inside x86_64 container
+    export DISABLE_MANGOHUD=1
 
     # DXVK async for Proton
     export DXVK_ASYNC=1
@@ -118,6 +124,7 @@ in {
   # Steam scripts use #!/bin/bash shebangs — NixOS doesn't have /bin/bash by default
   systemd.tmpfiles.rules = [
     "L+ /bin/bash - - - - ${pkgs.bash}/bin/bash"
+    "d /usr/lib -"  # pressure-vessel/bwrap expects /usr/lib to exist
   ];
 
   environment.systemPackages = [
