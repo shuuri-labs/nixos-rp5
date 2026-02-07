@@ -98,11 +98,12 @@ let
     # Vulkan — point to the host ARM64 Turnip driver
     export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
 
-    # Expose NixOS paths into Steam's pressure-vessel container.
-    # Must include /run itself — container can't traverse to subdirs otherwise.
-    export PRESSURE_VESSEL_FILESYSTEMS_RO="/run:/nix:/etc/host.conf"
+    # Disable pressure-vessel container. It can't see /run or /nix (reserved paths),
+    # and the aarch64 Vulkan ICD can't be loaded by the x86_64 loader inside the
+    # container anyway. Running without the container lets FEX handle everything.
+    export PRESSURE_VESSEL_WRAP=
 
-    # Don't load aarch64 MangoHud layer inside x86_64 container
+    # Don't load aarch64 MangoHud layer inside x86_64 process
     export DISABLE_MANGOHUD=1
     export MANGOHUD=0
 
