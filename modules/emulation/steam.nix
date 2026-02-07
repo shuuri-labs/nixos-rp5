@@ -23,8 +23,9 @@ let
     fi
 
     # Check FEX rootfs is available
-    if ! FEXInterpreter --help &>/dev/null 2>&1; then
-      echo "WARNING: FEXInterpreter may not have a rootfs configured."
+    FEX_DATA="''${XDG_DATA_HOME:-$HOME/.local/share}/fex-emu"
+    if [ ! -d "$FEX_DATA/RootFS" ] && [ ! -f "$FEX_DATA/RootFS.sqsh" ]; then
+      echo "WARNING: No FEX rootfs found at $FEX_DATA/RootFS"
       echo "Run 'fex-rootfs-setup' first if you haven't already."
       echo ""
     fi
@@ -53,6 +54,16 @@ let
 
     if [ -d usr/lib/steam ]; then
       cp -r usr/lib/steam/* "$STEAM_DIR/"
+    fi
+
+    # Extract the bootstrap tarball — this creates steam.sh and the rest of the client
+    BOOTSTRAP="$STEAM_DIR/bootstraplinux_ubuntu12_32.tar.xz"
+    if [ -f "$BOOTSTRAP" ]; then
+      echo "Extracting Steam bootstrap..."
+      ${pkgs.gnutar}/bin/tar xf "$BOOTSTRAP" -C "$STEAM_DIR"
+    else
+      echo "WARNING: Bootstrap tarball not found in .deb"
+      echo "Steam may not have installed correctly."
     fi
 
     # Clean up
