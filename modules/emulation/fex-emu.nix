@@ -32,52 +32,27 @@ in {
     pkgs.squashfsTools # for rootfs images
   ];
 
-  # Register binfmt handlers directly via systemd service.
-  # NixOS boot.binfmt.registrations wraps the interpreter in a bash script,
-  # which breaks the O (open-binary) flag — the kernel-opened fd doesn't
-  # survive the shell wrapper correctly. We register FEXInterpreter directly
-  # with the POCF flags that FEX expects.
-  systemd.services.fex-binfmt = {
-    description = "Register FEX-Emu binfmt handlers";
-    after = [ "proc-sys-fs-binfmt_misc.mount" "systemd-binfmt.service" ];
-    wantedBy = [ "multi-user.target" ];
+  # Register binfmt handlers so x86_64/i386 ELFs run through FEX automatically.
+  # NixOS wraps the interpreter in a shell script at /run/binfmt/. We must NOT
+  # use openBinary (O flag) because the kernel-opened fd doesn't survive the
+  # shell wrapper. FEXInterpreter opens the binary by path instead.
+  boot.binfmt.registrations = {
+    FEX-x86_64 = {
+      magicOrExtension = ''\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00'';
+      mask = ''\xff\xff\xff\xff\xff\xfe\xfe\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff'';
+      interpreter = "${fex}/bin/FEXInterpreter";
+      preserveArgvZero = true;
+      openBinary = false;
+      fixBinary = false;
+    };
 
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "register-fex-binfmt" ''
-        # Mount binfmt_misc if not already mounted
-        if [ ! -f /proc/sys/fs/binfmt_misc/register ]; then
-          mount -t binfmt_misc binfmt_misc /proc/sys/fs/binfmt_misc
-        fi
-
-        # Remove stale entries if they exist
-        for entry in FEX-x86_64 FEX-i386; do
-          [ -f "/proc/sys/fs/binfmt_misc/$entry" ] && echo -1 > "/proc/sys/fs/binfmt_misc/$entry"
-        done
-
-        # Register x86_64 (POCF = preserve-argv0, open-binary, credentials, fix-binary)
-        echo ':FEX-x86_64:M::\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00:\xff\xff\xff\xff\xff\xfe\xfe\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:${fex}/bin/FEXInterpreter:POCF' \
-          > /proc/sys/fs/binfmt_misc/register
-
-        # Register i386
-        echo ':FEX-i386:M::\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00:\xff\xff\xff\xff\xff\xfe\xfe\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff:${fex}/bin/FEXInterpreter:POCF' \
-          > /proc/sys/fs/binfmt_misc/register
-
-        # Verify
-        for entry in FEX-x86_64 FEX-i386; do
-          if [ -f "/proc/sys/fs/binfmt_misc/$entry" ]; then
-            echo "fex-binfmt: $entry registered"
-          else
-            echo "fex-binfmt: WARNING - $entry failed to register"
-          fi
-        done
-      '';
-      ExecStop = pkgs.writeShellScript "unregister-fex-binfmt" ''
-        for entry in FEX-x86_64 FEX-i386; do
-          [ -f "/proc/sys/fs/binfmt_misc/$entry" ] && echo -1 > "/proc/sys/fs/binfmt_misc/$entry"
-        done
-      '';
+    FEX-i386 = {
+      magicOrExtension = ''\x7fELF\x01\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x03\x00'';
+      mask = ''\xff\xff\xff\xff\xff\xfe\xfe\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff'';
+      interpreter = "${fex}/bin/FEXInterpreter";
+      preserveArgvZero = true;
+      openBinary = false;
+      fixBinary = false;
     };
   };
 }
