@@ -198,6 +198,10 @@ let
     export DISABLE_MANGOHUD=1
     export MANGOHUD=0
 
+    # Force software rendering — no x86_64 GPU driver on ARM64 without thunks.
+    # steamwebhelper (Chromium) needs this to create its offscreen GL context.
+    export LIBGL_ALWAYS_SOFTWARE=1
+
     # Shader cache
     export MESA_SHADER_CACHE_DIR="$HOME/.cache/mesa_shader_cache"
     mkdir -p "$MESA_SHADER_CACHE_DIR"
@@ -210,9 +214,9 @@ let
     # process with FEX translating syscalls. binfmt_misc handles child processes.
     # steam.sh is preferred (full client); bin_steam.sh is the initial bootstrapper.
     if [ -f "$STEAM_DIR/steam.sh" ]; then
-      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 ./steam.sh $*"
+      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./steam.sh $*"
     else
-      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 ./bin_steam.sh $*"
+      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./bin_steam.sh $*"
     fi
   '';
 
