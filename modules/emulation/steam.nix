@@ -1,9 +1,13 @@
 { config, lib, pkgs, ... }:
 
 # Steam integration for RP5 via FEX-Emu
-# Steam is x86_64-only, runs through FEX binfmt emulation
+# Uses FEXBash to launch Steam inside the x86_64 rootfs environment,
+# following the FEX Wiki's officially documented approach.
+# https://wiki.fex-emu.com/index.php/Steam
 
 let
+  fex = pkgs.unstable.fex;
+
   # Steam installation helper script
   install-steam = pkgs.writeShellScriptBin "install-steam" ''
     set -e
@@ -73,49 +77,114 @@ let
 
     echo ""
     echo "Steam installed to $STEAM_DIR"
-    echo "Run 'steam' to launch."
+    echo ""
+    echo "IMPORTANT: Run 'steam-setup' to delete conflicting runtime libraries"
+    echo "before launching Steam for the first time."
+    echo ""
+    echo "Then run 'steam' to launch (first launch takes several minutes on FEX)."
   '';
 
-  # Steam launch wrapper
+  # Post-install setup: delete conflicting Steam runtime libraries
+  # Per FEX Wiki: Steam bundles old x86_64 libs that conflict with the FEX rootfs.
+  # These must be deleted so Steam uses the rootfs versions instead.
+  steam-setup = pkgs.writeShellScriptBin "steam-setup" ''
+    set -e
+
+    STEAM_DIR="$HOME/.local/share/Steam"
+
+    echo "Steam Setup for FEX-Emu"
+    echo "========================"
+    echo ""
+
+    if [ ! -d "$STEAM_DIR" ]; then
+      echo "ERROR: Steam not found at $STEAM_DIR"
+      echo "Run 'install-steam' first."
+      exit 1
+    fi
+
+    echo "Removing conflicting Steam runtime libraries..."
+    echo "(These conflict with the FEX rootfs and must be deleted)"
+    echo ""
+
+    # Steam runtime libraries that conflict with the FEX rootfs
+    # Per https://wiki.fex-emu.com/index.php/Steam
+    RUNTIME_DIR="$STEAM_DIR/ubuntu12_32/steam-runtime"
+
+    LIBS_TO_REMOVE=(
+      # Graphics/driver libs that must come from rootfs
+      "libgcc_s.so.1"
+      "libstdc++.so.6"
+      "libxcb.so.1"
+      "libgpg-error.so.0"
+      # Dbus — Steam bundles an old version
+      "libdbus-1.so.3"
+    )
+
+    removed=0
+    for lib in "''${LIBS_TO_REMOVE[@]}"; do
+      # Search both i386 and amd64 runtime dirs
+      while IFS= read -r -d "" file; do
+        echo "  Removing: ''${file#$STEAM_DIR/}"
+        rm -f "$file"
+        removed=$((removed + 1))
+      done < <(find "$RUNTIME_DIR" -name "$lib" -print0 2>/dev/null || true)
+    done
+
+    echo ""
+    if [ "$removed" -gt 0 ]; then
+      echo "Removed $removed conflicting libraries."
+    else
+      echo "No conflicting libraries found (already cleaned or different Steam version)."
+    fi
+
+    echo ""
+    echo "Setup complete. Run 'steam' to launch."
+    echo "NOTE: First launch takes several minutes on FEX — be patient!"
+  '';
+
+  # Steam launch wrapper using FEXBash
+  # FEXBash runs commands inside the x86_64 rootfs with proper FEX environment.
+  # This is the officially documented way to run Steam under FEX-Emu.
   steam-wrapper = pkgs.writeShellScriptBin "steam" ''
     STEAM_DIR="$HOME/.local/share/Steam"
 
-    # steam.sh exists after first successful bootstrap; bin_steam.sh is the
-    # initial entry point shipped in the .deb that performs the bootstrap
-    if [ -f "$STEAM_DIR/steam.sh" ]; then
-      LAUNCH="$STEAM_DIR/steam.sh"
-    elif [ -f "$STEAM_DIR/bin_steam.sh" ]; then
-      LAUNCH="$STEAM_DIR/bin_steam.sh"
-    else
+    # Check Steam is installed
+    if [ ! -f "$STEAM_DIR/steam.sh" ] && [ ! -f "$STEAM_DIR/bin_steam.sh" ]; then
       echo "Steam not found. Run 'install-steam' first."
       exit 1
     fi
 
-    # Steam environment
-    export STEAMOS=1
-    export STEAM_RUNTIME=1
+    # Check FEXBash is available
+    if ! command -v FEXBash &>/dev/null; then
+      echo "ERROR: FEXBash not found on PATH."
+      echo "FEX-Emu must be installed. Check your NixOS configuration."
+      exit 1
+    fi
 
-    # Vulkan — point to the host ARM64 Turnip driver
-    export VK_ICD_FILENAMES=/run/opengl-driver/share/vulkan/icd.d/freedreno_icd.aarch64.json
-
-    # Disable pressure-vessel container. It can't see /run or /nix (reserved paths),
-    # and the aarch64 Vulkan ICD can't be loaded by the x86_64 loader inside the
-    # container anyway. Running without the container lets FEX handle everything.
-    export PRESSURE_VESSEL_WRAP=
-
-    # Don't load aarch64 MangoHud layer inside x86_64 process
-    export DISABLE_MANGOHUD=1
-    export MANGOHUD=0
-
-    # DXVK async for Proton
-    export DXVK_ASYNC=1
+    echo "Launching Steam via FEXBash..."
+    echo "(First launch takes several minutes — be patient!)"
+    echo ""
 
     # Shader cache
     export MESA_SHADER_CACHE_DIR="$HOME/.cache/mesa_shader_cache"
     mkdir -p "$MESA_SHADER_CACHE_DIR"
 
-    cd "$STEAM_DIR"
-    exec "$LAUNCH" "$@"
+    # DXVK async for Proton
+    export DXVK_ASYNC=1
+
+    # Don't load aarch64 MangoHud layer inside x86_64 process
+    export DISABLE_MANGOHUD=1
+    export MANGOHUD=0
+
+    # Launch Steam through FEXBash
+    # FEXBash provides the x86_64 rootfs environment. Steam runs as an x86_64
+    # process with FEX translating syscalls. binfmt_misc handles child processes.
+    # steam.sh is preferred (full client); bin_steam.sh is the initial bootstrapper.
+    if [ -f "$STEAM_DIR/steam.sh" ]; then
+      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 ./steam.sh $*"
+    else
+      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 ./bin_steam.sh $*"
+    fi
   '';
 
   # Gamepad UI wrapper
@@ -127,7 +196,7 @@ in {
   # Steam scripts use #!/bin/bash shebangs — NixOS doesn't have /bin/bash by default
   systemd.tmpfiles.rules = [
     "L+ /bin/bash - - - - ${pkgs.bash}/bin/bash"
-    "d /usr/lib -"      # pressure-vessel/bwrap expects FHS paths
+    "d /usr/lib -"      # bwrap expects FHS paths
     "d /usr/share -"
   ];
 
@@ -136,6 +205,7 @@ in {
 
   environment.systemPackages = [
     install-steam
+    steam-setup
     steam-wrapper
     steam-gamepadui
 
