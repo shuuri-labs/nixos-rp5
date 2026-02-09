@@ -148,6 +148,52 @@ let
       echo "No conflicting libraries found (already cleaned or different Steam version)."
     fi
 
+    # ── Patch rootfs for FHS files that bwrap/pressure-vessel expects ──
+    echo ""
+    echo "Patching rootfs for Steam compatibility..."
+
+    ROOTFS_PATH=$(fex-find-rootfs 2>/dev/null) || true
+    if [ -n "$ROOTFS_PATH" ] && [ -d "$ROOTFS_PATH" ]; then
+      # /etc/host.conf — bwrap bind-mounts this into the container
+      if [ ! -f "$ROOTFS_PATH/etc/host.conf" ]; then
+        echo "  Creating /etc/host.conf in rootfs"
+        echo "multi on" > "$ROOTFS_PATH/etc/host.conf"
+      fi
+
+      # /etc/hosts — needed for network resolution inside container
+      if [ ! -f "$ROOTFS_PATH/etc/hosts" ]; then
+        echo "  Creating /etc/hosts in rootfs"
+        cat > "$ROOTFS_PATH/etc/hosts" << 'HOSTS'
+127.0.0.1 localhost
+::1 localhost
+HOSTS
+      fi
+
+      # /etc/resolv.conf — DNS resolution (copy from host)
+      if [ ! -f "$ROOTFS_PATH/etc/resolv.conf" ] && [ -f /etc/resolv.conf ]; then
+        echo "  Copying /etc/resolv.conf to rootfs"
+        cp /etc/resolv.conf "$ROOTFS_PATH/etc/resolv.conf"
+      fi
+
+      # /etc/machine-id — needed by dbus
+      if [ ! -f "$ROOTFS_PATH/etc/machine-id" ] && [ -f /etc/machine-id ]; then
+        echo "  Copying /etc/machine-id to rootfs"
+        cp /etc/machine-id "$ROOTFS_PATH/etc/machine-id"
+      fi
+
+      # /etc/passwd and /etc/group — needed for user lookups inside container
+      if [ ! -f "$ROOTFS_PATH/etc/passwd" ]; then
+        echo "  Creating /etc/passwd in rootfs"
+        grep "^$(whoami):" /etc/passwd > "$ROOTFS_PATH/etc/passwd" 2>/dev/null || true
+        grep "^root:" /etc/passwd >> "$ROOTFS_PATH/etc/passwd" 2>/dev/null || true
+      fi
+
+      echo "  Rootfs patching complete."
+    else
+      echo "  WARNING: Could not find rootfs — skipping patches."
+      echo "  Run 'fex-rootfs-setup' and 'fex-config-setup' first."
+    fi
+
     echo ""
     echo "Setup complete. Run 'steam' to launch."
     echo "NOTE: First launch takes several minutes on FEX — be patient!"
@@ -269,6 +315,18 @@ let
 
     # DXVK async for Proton
     export DXVK_ASYNC=1
+
+    # ── pressure-vessel / bwrap sandbox workarounds ──
+    # Steam uses pressure-vessel (bwrap) to sandbox steamwebhelper and games.
+    # Inside FEX, the sandbox tries to bind-mount host files that may not
+    # exist at the expected paths. Disable the sandbox or loosen it.
+    export PRESSURE_VESSEL_FILESYSTEMS_RO="/etc/host.conf:/etc/hosts:/etc/resolv.conf:/etc/machine-id"
+    export STEAM_DISABLE_BROWSER_SANDBOX=1
+
+    # Tell pressure-vessel to prefer container libraries over host
+    export STEAM_RUNTIME_PREFER_HOST_LIBRARIES=0
+    export PRESSURE_VESSEL_VARIABLE_DIR="$HOME/.local/share/Steam/steamrt64/var"
+    mkdir -p "$HOME/.local/share/Steam/steamrt64/var" 2>/dev/null || true
 
     # ── Build Steam arguments ──
     # -cef-disable-gpu: tell steamwebhelper's Chromium not to use GPU
