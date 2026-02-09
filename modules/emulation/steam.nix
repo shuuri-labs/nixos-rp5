@@ -285,13 +285,25 @@ let
       STEAM_SCRIPT="bin_steam.sh"
     fi
 
+    # ── Reset PATH to FHS defaults ──
+    # CRITICAL: NixOS PATH contains /run/current-system/sw/bin, /nix/store/...,
+    # etc. When the emulated x86_64 bash searches for commands (uname, cat, ls),
+    # it finds them at NixOS paths. FEX's rootfs overlay checks if these paths
+    # exist in the rootfs — they DON'T (the rootfs is Ubuntu, not NixOS).
+    # So FEX falls through to the host, which runs the aarch64 native binary,
+    # completely escaping emulation.
+    #
+    # By resetting PATH to standard FHS paths, the emulated bash finds commands
+    # at /usr/bin/uname, /bin/cat, etc. FEX's overlay redirects these to the
+    # rootfs's x86_64 versions. All child processes stay under emulation.
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
     # ── Launch via FEXInterpreter with rootfs bash ──
-    # Instead of FEXBash (which does `FEX /bin/bash` and finds the host's
-    # aarch64 bash), we invoke FEXInterpreter directly with the rootfs's
-    # x86_64 bash. This guarantees:
+    # We invoke FEXInterpreter directly with the rootfs's x86_64 bash
+    # (bypassing FEXBash which has issues on NixOS). This guarantees:
     #   - FEX loads an x86_64 ELF for emulation
-    #   - Rootfs overlay activates for all syscalls from this process tree
-    #   - `uname -m` returns x86_64 inside the emulated environment
+    #   - Rootfs overlay redirects FHS paths to rootfs x86_64 binaries
+    #   - All child processes stay under emulation (not escaping to host)
     exec ${fex}/bin/FEXInterpreter "$ROOTFS_BASH" -c \
       "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./$STEAM_SCRIPT $STEAM_ARGS $*"
   '';

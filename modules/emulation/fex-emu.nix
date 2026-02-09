@@ -253,6 +253,13 @@ let
     echo ""
 
     # 8. Emulation tests
+    # CRITICAL: We must set FHS PATH for emulation tests. NixOS PATH contains
+    # /run/current-system/sw/bin, /nix/store/... paths. When the emulated bash
+    # searches for commands like 'uname', it finds them at NixOS paths which
+    # don't exist in the Ubuntu rootfs. FEX's overlay can't redirect them,
+    # so the host's aarch64 binary runs natively — escaping emulation entirely.
+    FHS_PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
     echo "── Emulation Tests ──"
     if [ -n "$ROOTFS_PATH" ] && [ -f "$ROOTFS_PATH/bin/bash" ]; then
       # Test A: Does FEXInterpreter load the binary at all?
@@ -261,36 +268,38 @@ let
       RESULT_A=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'echo FEX_WORKS' 2>/dev/null) || RESULT_A="FAILED"
       echo "    Result: $RESULT_A"
 
-      # Test B: Check /proc/self/exe to see what binary is running
-      echo "  Test B: /proc/self/exe inside emulation"
-      RESULT_B=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'ls -la /proc/self/exe 2>/dev/null || echo UNAVAILABLE' 2>/dev/null) || RESULT_B="FAILED"
+      # Test B: uname -m with NixOS PATH (expected: aarch64 — proves the problem)
+      echo "  Test B: uname -m with NixOS PATH (should show aarch64 = broken)"
+      RESULT_B=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'uname -m' 2>/dev/null) || RESULT_B="FAILED"
       echo "    Result: $RESULT_B"
 
-      # Test C: uname -m (uses external command — tests rootfs overlay for child processes)
-      echo "  Test C: uname -m (external command — tests rootfs overlay)"
-      RESULT_C=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'uname -m' 2>/dev/null) || RESULT_C="FAILED"
+      # Test C: uname -m with FHS PATH (should show x86_64 = fix works!)
+      echo "  Test C: uname -m with FHS PATH (should show x86_64 = working)"
+      RESULT_C=$(PATH="$FHS_PATH" ${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'uname -m' 2>/dev/null) || RESULT_C="FAILED"
       echo "    Result: $RESULT_C"
 
-      # Test D: Check if rootfs overlay redirects /etc/os-release
-      echo "  Test D: cat /etc/os-release (tests rootfs filesystem overlay)"
-      RESULT_D=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2' 2>/dev/null) || RESULT_D="FAILED"
+      # Test D: cat /etc/os-release with FHS PATH (tests rootfs filesystem overlay)
+      echo "  Test D: cat /etc/os-release with FHS PATH"
+      RESULT_D=$(PATH="$FHS_PATH" ${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2' 2>/dev/null) || RESULT_D="FAILED"
       echo "    Result: $RESULT_D"
 
-      # Test E: Check if /usr/lib/x86_64-linux-gnu is visible
-      echo "  Test E: ls /usr/lib/x86_64-linux-gnu (tests rootfs lib visibility)"
-      RESULT_E=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'ls /usr/lib/x86_64-linux-gnu/ 2>/dev/null | wc -l' 2>/dev/null) || RESULT_E="FAILED"
+      # Test E: ls /usr/lib/x86_64-linux-gnu with FHS PATH (tests rootfs lib visibility)
+      echo "  Test E: ls /usr/lib/x86_64-linux-gnu with FHS PATH"
+      RESULT_E=$(PATH="$FHS_PATH" ${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'ls /usr/lib/x86_64-linux-gnu/ 2>/dev/null | wc -l' 2>/dev/null) || RESULT_E="FAILED"
       echo "    Result: $RESULT_E files"
 
       # Summary
       echo ""
       if [ "$RESULT_C" = "x86_64" ]; then
-        echo "  STATUS: EMULATION + ROOTFS OVERLAY WORKING"
-      elif [ "$RESULT_A" = "FEX_WORKS" ] && [ "$RESULT_C" = "aarch64" ]; then
-        echo "  STATUS: EMULATION WORKS but ROOTFS OVERLAY BROKEN"
-        echo "  FEX loads x86_64 bash, but child processes see host filesystem."
-        echo "  Run 'fex-config-setup' to set absolute rootfs path, then retry."
-      elif [ "$RESULT_A" = "FEX_WORKS" ]; then
-        echo "  STATUS: PARTIAL — FEX loads binary but uname test inconclusive"
+        echo "  STATUS: EMULATION + ROOTFS OVERLAY WORKING (with FHS PATH)"
+        if [ "$RESULT_B" = "aarch64" ]; then
+          echo "  NixOS PATH causes child processes to escape emulation."
+          echo "  FHS PATH fix resolves this — Steam wrapper already applies it."
+        fi
+      elif [ "$RESULT_A" = "FEX_WORKS" ] && [ "$RESULT_C" != "x86_64" ]; then
+        echo "  STATUS: EMULATION WORKS but ROOTFS OVERLAY STILL BROKEN"
+        echo "  FEX loads x86_64 bash, but FHS PATH didn't fix child process issue."
+        echo "  This may indicate a deeper FEX rootfs configuration problem."
       else
         echo "  STATUS: EMULATION NOT WORKING — FEXInterpreter can't load rootfs bash"
         echo "  Check that rootfs bash is x86_64 (not aarch64)."
