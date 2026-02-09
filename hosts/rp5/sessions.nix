@@ -116,6 +116,12 @@ in {
       [KDE Action Restrictions]
       action/lock_screen=false
     '';
+
+    # Virtual keyboard for touchscreen input
+    "xdg/kwinrc".text = ''
+      [Wayland]
+      InputMethod=/run/current-system/sw/share/applications/org.kde.plasma.keyboard.desktop
+    '';
   };
 
   # Additional packages (Plasma provided by the module)
@@ -128,6 +134,10 @@ in {
     kdePackages.kate
     kdePackages.ark
     kdePackages.spectacle
+
+    # Virtual keyboard for touchscreen
+    kdePackages.plasma-keyboard
+    kdePackages.qtvirtualkeyboard
 
     # Wayland utilities
     wl-clipboard
