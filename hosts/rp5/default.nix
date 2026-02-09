@@ -185,6 +185,9 @@
     # Gaming
     mangohud
 
+    # Browser
+    firefox
+
     # Development (optional, comment out to save space)
     # gcc
     # gnumake
