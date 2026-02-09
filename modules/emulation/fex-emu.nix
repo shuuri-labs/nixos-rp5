@@ -123,8 +123,13 @@ let
       exit 1
     fi
 
-    # Run inside FEX with FHS PATH so all commands resolve through rootfs
-    exec env PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+    # Run inside FEX with FHS PATH so all commands resolve through rootfs.
+    # Preserve display vars so GUI tools (glxinfo, eglinfo) can connect.
+    exec env \
+      PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      DISPLAY="''${DISPLAY:-}" \
+      WAYLAND_DISPLAY="''${WAYLAND_DISPLAY:-}" \
+      XDG_RUNTIME_DIR="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" \
       ${fex}/bin/FEXInterpreter "$ROOTFS_BASH" -c "$*"
   '';
 

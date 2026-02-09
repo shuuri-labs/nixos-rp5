@@ -303,6 +303,30 @@ HOSTS
     echo "  (First launch takes several minutes — be patient!)"
     echo ""
 
+    # ── Preserve display environment ──
+    # Steam/steamwebhelper (CEF/Chromium) needs a display connection to create
+    # GL contexts — even for "offscreen" rendering. Capture these BEFORE we
+    # modify any environment variables.
+    SAVE_DISPLAY="''${DISPLAY:-}"
+    SAVE_WAYLAND_DISPLAY="''${WAYLAND_DISPLAY:-}"
+    SAVE_XDG_RUNTIME_DIR="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+    SAVE_XDG_SESSION_TYPE="''${XDG_SESSION_TYPE:-}"
+    SAVE_DBUS_SESSION_BUS_ADDRESS="''${DBUS_SESSION_BUS_ADDRESS:-}"
+
+    # If no DISPLAY is set, try XWayland default (:0)
+    if [ -z "$SAVE_DISPLAY" ]; then
+      # Check if XWayland is running
+      if [ -e "/tmp/.X11-unix/X0" ]; then
+        SAVE_DISPLAY=":0"
+      elif [ -e "/tmp/.X11-unix/X1" ]; then
+        SAVE_DISPLAY=":1"
+      fi
+    fi
+
+    echo "  Display: DISPLAY=$SAVE_DISPLAY WAYLAND=$SAVE_WAYLAND_DISPLAY"
+    echo "  Runtime: $SAVE_XDG_RUNTIME_DIR"
+    echo ""
+
     # ── Sanitize NixOS environment ──
     # NixOS sets env vars pointing to /nix/store aarch64 libraries.
     # These leak into FEX and cause failures when x86_64 processes try to
@@ -375,6 +399,16 @@ HOSTS
     if [ ! -f "$STEAM_DIR/steam.sh" ]; then
       STEAM_SCRIPT="bin_steam.sh"
     fi
+
+    # ── Restore display environment ──
+    # These must be set so steamwebhelper can connect to the display server
+    # and create GL contexts. Without DISPLAY, CEF fails with
+    # "Failed creating offscreen shared JS context".
+    export DISPLAY="$SAVE_DISPLAY"
+    export WAYLAND_DISPLAY="$SAVE_WAYLAND_DISPLAY"
+    export XDG_RUNTIME_DIR="$SAVE_XDG_RUNTIME_DIR"
+    export XDG_SESSION_TYPE="$SAVE_XDG_SESSION_TYPE"
+    export DBUS_SESSION_BUS_ADDRESS="$SAVE_DBUS_SESSION_BUS_ADDRESS"
 
     # ── Reset PATH to FHS defaults ──
     # CRITICAL: NixOS PATH contains /run/current-system/sw/bin, /nix/store/...,
