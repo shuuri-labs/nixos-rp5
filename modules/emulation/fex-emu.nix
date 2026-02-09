@@ -196,33 +196,111 @@ let
     fi
     echo ""
 
-    # 7. Quick emulation test
-    echo "── Emulation Test ──"
-    # Resolve rootfs path from config
+    # 7. Rootfs bash architecture check
+    echo "── RootFS Bash Binary ──"
     ROOTFS_PATH=""
     for cfg in "$HOME/.fex-emu/Config.json" "$HOME/.config/fex-emu/Config.json"; do
       if [ -f "$cfg" ]; then
-        # Extract RootFS value (simple grep, no jq dependency)
         ROOTFS_PATH=$(grep -o '"RootFS":"[^"]*"' "$cfg" 2>/dev/null | cut -d'"' -f4)
+        # If it's a name (not absolute path), try to resolve it
+        if [ -n "$ROOTFS_PATH" ] && [ "''${ROOTFS_PATH:0:1}" != "/" ]; then
+          for dir in "$HOME/.fex-emu/RootFS/$ROOTFS_PATH" \
+                     "''${XDG_DATA_HOME:-$HOME/.local/share}/fex-emu/RootFS/$ROOTFS_PATH"; do
+            if [ -d "$dir" ]; then
+              echo "  NOTE: Config uses name '$ROOTFS_PATH', not absolute path"
+              echo "  Run 'fex-config-setup' to fix this!"
+              ROOTFS_PATH="$dir"
+              break
+            fi
+          done
+        fi
         break
       fi
     done
 
-    if [ -n "$ROOTFS_PATH" ] && [ -f "$ROOTFS_PATH/bin/bash" ]; then
-      echo "  Testing: FEX $ROOTFS_PATH/bin/bash -c 'uname -m'"
-      RESULT=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'uname -m' 2>/dev/null) || RESULT="FAILED"
-      echo "  Result: $RESULT"
-      if [ "$RESULT" = "x86_64" ]; then
-        echo "  STATUS: EMULATION WORKING"
-      else
-        echo "  STATUS: EMULATION BROKEN — expected x86_64, got $RESULT"
-      fi
+    if [ -z "$ROOTFS_PATH" ]; then
+      echo "  ERROR: No rootfs path in Config.json"
+      echo "  Run 'fex-config-setup' to configure"
+    elif [ ! -d "$ROOTFS_PATH" ]; then
+      echo "  ERROR: Rootfs directory not found: $ROOTFS_PATH"
     else
-      echo "  Cannot test — rootfs bash not found at: $ROOTFS_PATH/bin/bash"
+      echo "  Config RootFS: $ROOTFS_PATH"
+      ROOTFS_BASH="$ROOTFS_PATH/bin/bash"
+      if [ -f "$ROOTFS_BASH" ] || [ -L "$ROOTFS_BASH" ]; then
+        BASH_ARCH=$(file "$ROOTFS_BASH" 2>/dev/null)
+        echo "  $ROOTFS_BASH:"
+        echo "    $BASH_ARCH"
+        if echo "$BASH_ARCH" | grep -q "x86-64"; then
+          echo "  ARCH: x86_64 (correct)"
+        elif echo "$BASH_ARCH" | grep -q "aarch64\|ARM aarch64"; then
+          echo "  ARCH: aarch64 (WRONG — this is a native binary, not x86_64!)"
+          echo "  The rootfs may have been extracted from an arm64 image."
+          echo "  Re-download with: FEXRootFSFetcher"
+        else
+          echo "  ARCH: unknown — check manually"
+        fi
+      else
+        echo "  ERROR: $ROOTFS_BASH not found"
+      fi
+
+      # Check rootfs uname binary too
+      ROOTFS_UNAME="$ROOTFS_PATH/usr/bin/uname"
+      if [ -f "$ROOTFS_UNAME" ]; then
+        echo "  $ROOTFS_UNAME:"
+        echo "    $(file "$ROOTFS_UNAME" 2>/dev/null)"
+      fi
     fi
     echo ""
 
-    # 8. Kernel support
+    # 8. Emulation tests
+    echo "── Emulation Tests ──"
+    if [ -n "$ROOTFS_PATH" ] && [ -f "$ROOTFS_PATH/bin/bash" ]; then
+      # Test A: Does FEXInterpreter load the binary at all?
+      # Use bash builtin 'echo' (no child process needed) to test basic emulation
+      echo "  Test A: FEXInterpreter loads rootfs bash (builtin echo)"
+      RESULT_A=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'echo FEX_WORKS' 2>/dev/null) || RESULT_A="FAILED"
+      echo "    Result: $RESULT_A"
+
+      # Test B: Check /proc/self/exe to see what binary is running
+      echo "  Test B: /proc/self/exe inside emulation"
+      RESULT_B=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'ls -la /proc/self/exe 2>/dev/null || echo UNAVAILABLE' 2>/dev/null) || RESULT_B="FAILED"
+      echo "    Result: $RESULT_B"
+
+      # Test C: uname -m (uses external command — tests rootfs overlay for child processes)
+      echo "  Test C: uname -m (external command — tests rootfs overlay)"
+      RESULT_C=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'uname -m' 2>/dev/null) || RESULT_C="FAILED"
+      echo "    Result: $RESULT_C"
+
+      # Test D: Check if rootfs overlay redirects /etc/os-release
+      echo "  Test D: cat /etc/os-release (tests rootfs filesystem overlay)"
+      RESULT_D=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'cat /etc/os-release 2>/dev/null | grep PRETTY_NAME | cut -d= -f2' 2>/dev/null) || RESULT_D="FAILED"
+      echo "    Result: $RESULT_D"
+
+      # Test E: Check if /usr/lib/x86_64-linux-gnu is visible
+      echo "  Test E: ls /usr/lib/x86_64-linux-gnu (tests rootfs lib visibility)"
+      RESULT_E=$(${fex}/bin/FEXInterpreter "$ROOTFS_PATH/bin/bash" -c 'ls /usr/lib/x86_64-linux-gnu/ 2>/dev/null | wc -l' 2>/dev/null) || RESULT_E="FAILED"
+      echo "    Result: $RESULT_E files"
+
+      # Summary
+      echo ""
+      if [ "$RESULT_C" = "x86_64" ]; then
+        echo "  STATUS: EMULATION + ROOTFS OVERLAY WORKING"
+      elif [ "$RESULT_A" = "FEX_WORKS" ] && [ "$RESULT_C" = "aarch64" ]; then
+        echo "  STATUS: EMULATION WORKS but ROOTFS OVERLAY BROKEN"
+        echo "  FEX loads x86_64 bash, but child processes see host filesystem."
+        echo "  Run 'fex-config-setup' to set absolute rootfs path, then retry."
+      elif [ "$RESULT_A" = "FEX_WORKS" ]; then
+        echo "  STATUS: PARTIAL — FEX loads binary but uname test inconclusive"
+      else
+        echo "  STATUS: EMULATION NOT WORKING — FEXInterpreter can't load rootfs bash"
+        echo "  Check that rootfs bash is x86_64 (not aarch64)."
+      fi
+    else
+      echo "  Cannot test — rootfs bash not found"
+    fi
+    echo ""
+
+    # 9. Kernel support
     echo "── Kernel ──"
     echo "  Version: $(uname -r)"
     echo "  Arch: $(uname -m)"
