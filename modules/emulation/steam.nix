@@ -1,9 +1,17 @@
 { config, lib, pkgs, ... }:
 
 # Steam integration for RP5 via FEX-Emu
-# Uses FEXBash to launch Steam inside the x86_64 rootfs environment,
-# following the FEX Wiki's officially documented approach.
-# https://wiki.fex-emu.com/index.php/Steam
+#
+# IMPORTANT: We do NOT use FEXBash to launch Steam. FEXBash runs
+# `FEX /bin/bash`, but on NixOS /bin/bash is an aarch64 binary (tmpfiles
+# symlink) and FEX either can't emulate its own architecture or finds it
+# before checking the rootfs. Instead, we invoke FEXInterpreter directly
+# with the rootfs's x86_64 bash, which:
+#   1. Guarantees FEX loads an x86_64 binary for emulation
+#   2. Activates FEX's syscall-level rootfs overlay for all child processes
+#   3. Bypasses the name-resolution issues with FEXBash
+#
+# See docs/fex-rootfs-fix.md for full analysis.
 
 let
   fex = pkgs.unstable.fex;
@@ -27,10 +35,13 @@ let
     fi
 
     # Check FEX rootfs is available
-    FEX_DATA="''${XDG_DATA_HOME:-$HOME/.local/share}/fex-emu"
-    if [ ! -d "$FEX_DATA/RootFS" ] && [ ! -f "$FEX_DATA/RootFS.sqsh" ]; then
-      echo "WARNING: No FEX rootfs found at $FEX_DATA/RootFS"
+    ROOTFS_PATH=$(fex-find-rootfs 2>/dev/null) || true
+    if [ -z "$ROOTFS_PATH" ]; then
+      echo "WARNING: No FEX rootfs found."
       echo "Run 'fex-rootfs-setup' first if you haven't already."
+      echo ""
+    else
+      echo "Using rootfs: $ROOTFS_PATH"
       echo ""
     fi
 
@@ -142,9 +153,53 @@ let
     echo "NOTE: First launch takes several minutes on FEX — be patient!"
   '';
 
-  # Steam launch wrapper using FEXBash
-  # FEXBash runs commands inside the x86_64 rootfs with proper FEX environment.
-  # This is the officially documented way to run Steam under FEX-Emu.
+  # Helper: find the rootfs path from Config.json or well-known locations.
+  # Used by steam wrapper and diagnostics. Returns absolute path on stdout.
+  fex-find-rootfs = pkgs.writeShellScriptBin "fex-find-rootfs" ''
+    # 1. Try Config.json (absolute path)
+    for cfg in \
+      "$HOME/.fex-emu/Config.json" \
+      "''${XDG_CONFIG_HOME:-$HOME/.config}/fex-emu/Config.json"; do
+      if [ -f "$cfg" ]; then
+        # Extract RootFS value — handles both absolute paths and names
+        RF=$(grep -o '"RootFS":"[^"]*"' "$cfg" 2>/dev/null | cut -d'"' -f4)
+        if [ -n "$RF" ]; then
+          # If it's an absolute path and exists, use it directly
+          if [ "''${RF:0:1}" = "/" ] && [ -d "$RF" ]; then
+            echo "$RF"
+            exit 0
+          fi
+          # If it's a name, search for it
+          for dir in \
+            "$HOME/.fex-emu/RootFS/$RF" \
+            "''${XDG_DATA_HOME:-$HOME/.local/share}/fex-emu/RootFS/$RF"; do
+            if [ -d "$dir" ]; then
+              echo "$dir"
+              exit 0
+            fi
+          done
+        fi
+      fi
+    done
+
+    # 2. Fallback: find any rootfs directory
+    for dir in \
+      "$HOME/.fex-emu/RootFS" \
+      "''${XDG_DATA_HOME:-$HOME/.local/share}/fex-emu/RootFS"; do
+      if [ -d "$dir" ]; then
+        FIRST=$(ls -1 "$dir" 2>/dev/null | head -1)
+        if [ -n "$FIRST" ] && [ -d "$dir/$FIRST" ]; then
+          echo "$dir/$FIRST"
+          exit 0
+        fi
+      fi
+    done
+
+    exit 1
+  '';
+
+  # Steam launch wrapper — invokes FEXInterpreter directly with rootfs bash.
+  # This bypasses FEXBash which has issues finding the correct bash on NixOS.
   steam-wrapper = pkgs.writeShellScriptBin "steam" ''
     STEAM_DIR="$HOME/.local/share/Steam"
 
@@ -154,24 +209,30 @@ let
       exit 1
     fi
 
-    # Check FEXBash is available
-    if ! command -v FEXBash &>/dev/null; then
-      echo "ERROR: FEXBash not found on PATH."
-      echo "FEX-Emu must be installed. Check your NixOS configuration."
+    # ── Locate FEX rootfs ──
+    ROOTFS_PATH=$(fex-find-rootfs 2>/dev/null) || true
+    if [ -z "$ROOTFS_PATH" ]; then
+      echo "ERROR: FEX rootfs not found."
+      echo "Run 'fex-rootfs-setup' and then 'fex-config-setup' first."
       exit 1
     fi
 
-    echo "Launching Steam via FEXBash..."
-    echo "(First launch takes several minutes — be patient!)"
+    ROOTFS_BASH="$ROOTFS_PATH/bin/bash"
+    if [ ! -f "$ROOTFS_BASH" ] && [ ! -L "$ROOTFS_BASH" ]; then
+      echo "ERROR: x86_64 bash not found at $ROOTFS_BASH"
+      echo "Rootfs may be incomplete. Re-run 'fex-rootfs-setup'."
+      exit 1
+    fi
+
+    echo "Launching Steam via FEX..."
+    echo "  Rootfs: $ROOTFS_PATH"
+    echo "  (First launch takes several minutes — be patient!)"
     echo ""
 
     # ── Sanitize NixOS environment ──
-    # NixOS sets env vars pointing to /nix/store aarch64 libraries and
-    # /run/current-system paths. These leak into FEXBash and then into
-    # pressure-vessel (Steam's bwrap sandbox), causing failures:
-    #   - dconf .so from /nix/store can't load (aarch64 in x86_64 context)
-    #   - MangoHud aarch64 Vulkan layer confuses pressure-vessel
-    #   - Vulkan ICD at /run/opengl-driver/ invisible inside container
+    # NixOS sets env vars pointing to /nix/store aarch64 libraries.
+    # These leak into FEX and cause failures when x86_64 processes try to
+    # load aarch64 .so files.
 
     # Graphics/Vulkan — aarch64 drivers can't be used by x86_64 processes
     unset VK_ICD_FILENAMES
@@ -209,11 +270,7 @@ let
     # DXVK async for Proton
     export DXVK_ASYNC=1
 
-    # Launch Steam through FEXBash
-    # FEXBash provides the x86_64 rootfs environment. Steam runs as an x86_64
-    # process with FEX translating syscalls. binfmt_misc handles child processes.
-    # steam.sh is preferred (full client); bin_steam.sh is the initial bootstrapper.
-    #
+    # ── Build Steam arguments ──
     # -cef-disable-gpu: tell steamwebhelper's Chromium not to use GPU
     # -cef-disable-sandbox: disable Chromium sandbox (conflicts with FEX/binfmt)
     # -no-browser: skip CEF entirely, use old VGUI (set via --no-browser flag)
@@ -223,11 +280,20 @@ let
       shift
     fi
 
-    if [ -f "$STEAM_DIR/steam.sh" ]; then
-      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./steam.sh $STEAM_ARGS $*"
-    else
-      exec ${fex}/bin/FEXBash -c "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./bin_steam.sh $STEAM_ARGS $*"
+    STEAM_SCRIPT="steam.sh"
+    if [ ! -f "$STEAM_DIR/steam.sh" ]; then
+      STEAM_SCRIPT="bin_steam.sh"
     fi
+
+    # ── Launch via FEXInterpreter with rootfs bash ──
+    # Instead of FEXBash (which does `FEX /bin/bash` and finds the host's
+    # aarch64 bash), we invoke FEXInterpreter directly with the rootfs's
+    # x86_64 bash. This guarantees:
+    #   - FEX loads an x86_64 ELF for emulation
+    #   - Rootfs overlay activates for all syscalls from this process tree
+    #   - `uname -m` returns x86_64 inside the emulated environment
+    exec ${fex}/bin/FEXInterpreter "$ROOTFS_BASH" -c \
+      "cd \"$STEAM_DIR\" && STEAMOS=1 STEAM_RUNTIME=1 LIBGL_ALWAYS_SOFTWARE=1 ./$STEAM_SCRIPT $STEAM_ARGS $*"
   '';
 
   # Minimal mode — skip the web browser entirely (old VGUI interface)
@@ -241,7 +307,9 @@ let
   '';
 
 in {
-  # Steam scripts use #!/bin/bash shebangs — NixOS doesn't have /bin/bash by default
+  # /bin/bash symlink — needed for Steam's #!/bin/bash shebangs when scripts
+  # are executed outside FEX (e.g. by the native aarch64 shell wrapper above).
+  # Inside FEX with rootfs overlay, /bin/bash resolves to the rootfs's x86_64 bash.
   systemd.tmpfiles.rules = [
     "L+ /bin/bash - - - - ${pkgs.bash}/bin/bash"
     "d /usr/lib -"      # bwrap expects FHS paths
@@ -257,6 +325,7 @@ in {
     steam-wrapper
     steam-minimal
     steam-gamepadui
+    fex-find-rootfs
 
     pkgs.curl
     pkgs.xdg-utils

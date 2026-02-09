@@ -58,8 +58,8 @@ This document tracks the implementation progress and to-do items for the NixOS R
 ### High Priority
 - [x] ~~Test Steam installation on actual hardware~~ — install-steam works
 - [x] ~~Verify FEX-Emu binfmt registration works correctly~~ — binfmt registered, x86_64 ELFs run through FEXInterpreter
-- [ ] **Fix FEX rootfs overlay** — rootfs exists but FEX doesn't overlay it onto the filesystem (see Known Issues)
-- [ ] Get Steam UI rendering — steamwebhelper needs x86_64 mesa/llvmpipe from rootfs
+- [ ] **Test FEX rootfs overlay fix** — rewrote steam wrapper to bypass FEXBash (see Known Issues)
+- [ ] Get Steam UI rendering — steamwebhelper needs x86_64 mesa/llvmpipe from rootfs (blocked on rootfs fix)
 - [ ] Test Gamescope session launch and FPS limiting
 - [x] ~~Verify KDE Plasma session starts properly~~ — Plasma 5.27.11 on Wayland confirmed working
 - [ ] Run Netbird in desktop mode (Plasma session)
@@ -210,50 +210,47 @@ This provides better performance than image-based boot and cleanly separates ROC
 
 ### FEX-Emu Rootfs Overlay Not Working on NixOS
 
-**Status:** Blocked — needs investigation
+**Status:** Fix implemented — needs on-device testing
 
 **Summary:**
-FEX-Emu can run x86_64 binaries (instruction translation works), but its rootfs filesystem overlay does not function. The x86_64 rootfs (Ubuntu 24.04) is extracted and FEX reads its config, but processes running under FEX see the NixOS host filesystem instead of the rootfs. This means no x86_64 shared libraries (mesa, libGL, libc, etc.) are available, so Steam's steamwebhelper (Chromium-based UI) cannot create a GL context and crashes.
+FEX-Emu can run x86_64 binaries (instruction translation works), but its rootfs filesystem overlay was not activating. The root cause was identified: FEXBash runs `FEX /bin/bash`, but on NixOS `/bin/bash` is an aarch64 binary (tmpfiles symlink). FEX finds the host's native bash instead of the rootfs's x86_64 bash, so emulation never starts. Additionally, Config.json used a rootfs name (`"Ubuntu_24_04"`) instead of an absolute path, causing name resolution failures due to NixOS's non-standard directory layout.
 
-**What works:**
-- FEX-Emu binfmt registration (x86_64 ELFs dispatched to FEXInterpreter)
-- FEXInterpreter can execute x86_64 binaries from the rootfs path
-- Steam client process starts, connects to Valve servers, downloads manifests
-- FEX config is read (`~/.config/fex-emu/Config.json` with `{"Config":{"RootFS":"Ubuntu_24_04"}}`)
-- NixOS env sanitization removes leaking /nix/store paths from FEXBash environment
+**Root cause analysis:** See `docs/fex-rootfs-fix.md` for full details.
 
-**What doesn't work:**
-- Rootfs filesystem overlay — `/usr/lib/x86_64-linux-gnu/` is empty/inaccessible inside FEXBash
-- `FEXBash -c "cat /etc/os-release"` shows NixOS instead of Ubuntu
-- `FEXBash -c "uname -m"` shows `aarch64` instead of `x86_64`
-- steamwebhelper crashes with "Failed creating offscreen shared JS context" (no mesa/llvmpipe)
+**Diagnostic evidence:**
+- `FEXBash -c "uname -m"` returns `aarch64` — proves FEX is NOT emulating (it intercepts uname to return x86_64)
+- `FEXBash -c "cat /etc/os-release"` shows NixOS — rootfs overlay not active
+- Config at `~/.config/fex-emu/Config.json`, rootfs at `~/.fex-emu/RootFS/` — directory mismatch
+- Steam client starts via binfmt (individual x86_64 binaries get translated) but with no rootfs overlay
 
-**Rootfs location:** `~/.fex-emu/RootFS/Ubuntu_24_04/` (extracted from squashfs, valid x86_64 rootfs with `/usr/lib/` contents confirmed)
+**Fix applied (2026-02-09):**
+1. Steam wrapper now invokes `FEXInterpreter <rootfs>/bin/bash` directly instead of FEXBash
+2. Added `fex-config-setup` to write Config.json with absolute rootfs path to both legacy and XDG locations
+3. Added `fex-find-rootfs` helper to locate rootfs from Config.json or well-known paths
+4. Added `fex-check` diagnostic script for on-device debugging
+5. Kept `/bin/bash` tmpfiles symlink for host script compatibility (no longer affects FEX)
 
-**Diagnostics done:**
-- `FEX_ROOTFS` environment variable — no effect
-- `~/.config/fex-emu/Config.json` — FEX reads it (confirmed via error message showing "Ubuntu_24_04") but overlay still doesn't activate
-- NixOS FEX package (`pkgs.unstable.fex`) is an aarch64 binary linked against /nix/store libraries
-- FEXBash binary runs host's `/bin/bash` (aarch64, via our tmpfiles symlink) rather than rootfs's x86_64 bash
-- `/run/current-system/sw/share/fex-emu/` contains GuestThunks and ThunksDB.json
+**Testing procedure (on device):**
+1. Deploy updated NixOS config
+2. Run `fex-config-setup` to fix Config.json paths
+3. Run `fex-check` to verify emulation works (`uname -m` should show `x86_64`)
+4. Run `steam` — should now launch with rootfs overlay active
 
-**Suspected causes:**
-1. NixOS FEX package may build/configure FEX differently — rootfs overlay may need additional setup
-2. FEXBash finds `/bin/bash` on the host (our aarch64 symlink) before checking the rootfs
-3. FEX's rootfs overlay may require squashfuse (which doesn't work) or a specific mount setup
-4. The NixOS package's FEX binary may have rootfs thunking disabled or misconfigured
-
-**Next steps to investigate:**
-- Check the nixpkgs FEX package definition for NixOS-specific patches or config
-- Try `strace` on FEXInterpreter to see what paths it accesses during rootfs setup
-- Check if removing the `/bin/bash` symlink allows FEXBash to use rootfs bash
-- Try building FEX from source with explicit rootfs support
-- Ask in FEX-Emu Discord/GitHub about NixOS rootfs overlay issues
-- Check if `squashfuse` package would allow FEX to use the .sqsh directly
+**Fallback if fix doesn't work:**
+- bubblewrap namespace approach — mount rootfs as real filesystem root, bypassing FEX's syscall-level overlay
+- muvm micro-VM approach — see https://github.com/nrabulinski/nixos-muvm-fex
 
 ---
 
 ## Changelog
+
+### 2026-02-09
+- Root-caused FEX rootfs overlay failure: FEXBash finds host aarch64 `/bin/bash` instead of rootfs x86_64 bash
+- Rewrote Steam wrapper to bypass FEXBash — invokes `FEXInterpreter <rootfs>/bin/bash` directly
+- Added `fex-config-setup`: writes Config.json with absolute rootfs path (bypasses name resolution)
+- Added `fex-find-rootfs`: locates rootfs from Config.json or well-known directories
+- Added `fex-check`: comprehensive on-device diagnostic script
+- Documented full analysis in `docs/fex-rootfs-fix.md`
 
 ### 2026-02-07
 - Rewrote FEX-Emu module: uses `pkgs.unstable.fex`, proper binfmt with `openBinary=false`
