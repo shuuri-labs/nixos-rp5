@@ -189,6 +189,34 @@ HOSTS
       fi
 
       echo "  Rootfs patching complete."
+
+      # ── Ensure mesa/libGL is installed in rootfs ──
+      # steamwebhelper needs x86_64 mesa (llvmpipe for software rendering).
+      # pressure-vessel's bwrap container gets libraries from the "host" (rootfs).
+      # If the rootfs doesn't have mesa, steamwebhelper can't create GL contexts.
+      echo ""
+      echo "Checking rootfs mesa libraries..."
+      if [ ! -f "$ROOTFS_PATH/usr/lib/x86_64-linux-gnu/libGL.so.1" ] && \
+         [ ! -L "$ROOTFS_PATH/usr/lib/x86_64-linux-gnu/libGL.so.1" ]; then
+        echo "  Mesa/libGL not found in rootfs — installing..."
+        echo "  (This requires network access and may take a minute)"
+        # Copy resolv.conf for DNS inside FEX
+        cp /etc/resolv.conf "$ROOTFS_PATH/etc/resolv.conf" 2>/dev/null || true
+        fex-rootfs-run "apt-get update -qq && apt-get install -y --no-install-recommends \
+          libgl1-mesa-dri libgl1-mesa-glx libegl-mesa0 libgles2-mesa mesa-utils \
+          libvulkan1 libx11-6 libxext6 libxcb1 2>&1" || \
+          echo "  WARNING: apt-get failed — install mesa manually: fex-rootfs-run apt-get install -y libgl1-mesa-dri"
+      else
+        echo "  Mesa/libGL found in rootfs."
+        # Check for DRI drivers (llvmpipe for software rendering)
+        if [ -d "$ROOTFS_PATH/usr/lib/x86_64-linux-gnu/dri" ]; then
+          DRI_COUNT=$(ls "$ROOTFS_PATH/usr/lib/x86_64-linux-gnu/dri/" 2>/dev/null | wc -l)
+          echo "  DRI drivers: $DRI_COUNT files"
+        else
+          echo "  WARNING: No DRI drivers directory — llvmpipe may be missing"
+          echo "  Try: fex-rootfs-run apt-get install -y libgl1-mesa-dri"
+        fi
+      fi
     else
       echo "  WARNING: Could not find rootfs — skipping patches."
       echo "  Run 'fex-rootfs-setup' and 'fex-config-setup' first."
@@ -318,13 +346,18 @@ HOSTS
 
     # ── pressure-vessel / bwrap sandbox workarounds ──
     # Steam uses pressure-vessel (bwrap) to sandbox steamwebhelper and games.
-    # Inside FEX, the sandbox tries to bind-mount host files that may not
-    # exist at the expected paths. Disable the sandbox or loosen it.
-    export PRESSURE_VESSEL_FILESYSTEMS_RO="/etc/host.conf:/etc/hosts:/etc/resolv.conf:/etc/machine-id"
+    # Inside FEX, bwrap creates a real kernel mount namespace. FEX's rootfs
+    # overlay can't inject files into that namespace. So libraries (like mesa)
+    # that the rootfs provides are invisible inside the bwrap container.
+    #
+    # The fix: tell pressure-vessel to prefer host libraries. In the FEX
+    # context, "host" = rootfs overlay. pressure-vessel checks which libs
+    # the host has (via FEX overlay → rootfs) and bind-mounts them in.
+    export STEAM_RUNTIME_PREFER_HOST_LIBRARIES=1
     export STEAM_DISABLE_BROWSER_SANDBOX=1
 
-    # Tell pressure-vessel to prefer container libraries over host
-    export STEAM_RUNTIME_PREFER_HOST_LIBRARIES=0
+    # Add rootfs library paths so pressure-vessel finds mesa/GL
+    export PRESSURE_VESSEL_FILESYSTEMS_RO="/etc/host.conf:/etc/hosts:/etc/resolv.conf:/etc/machine-id"
     export PRESSURE_VESSEL_VARIABLE_DIR="$HOME/.local/share/Steam/steamrt64/var"
     mkdir -p "$HOME/.local/share/Steam/steamrt64/var" 2>/dev/null || true
 

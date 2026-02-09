@@ -101,6 +101,33 @@ let
     echo "FEX rootfs configured with absolute path."
   '';
 
+  # Helper to run commands inside the FEX rootfs environment.
+  # Useful for installing packages (apt) or checking rootfs state.
+  fex-rootfs-run = pkgs.writeShellScriptBin "fex-rootfs-run" ''
+    ROOTFS_PATH=$(fex-find-rootfs 2>/dev/null) || true
+    if [ -z "$ROOTFS_PATH" ]; then
+      echo "ERROR: FEX rootfs not found. Run 'fex-rootfs-setup' first."
+      exit 1
+    fi
+
+    ROOTFS_BASH="$ROOTFS_PATH/bin/bash"
+    if [ ! -f "$ROOTFS_BASH" ]; then
+      echo "ERROR: rootfs bash not found at $ROOTFS_BASH"
+      exit 1
+    fi
+
+    if [ $# -eq 0 ]; then
+      echo "Usage: fex-rootfs-run <command...>"
+      echo "  Runs a command inside the FEX x86_64 rootfs environment."
+      echo "  Example: fex-rootfs-run apt-get update"
+      exit 1
+    fi
+
+    # Run inside FEX with FHS PATH so all commands resolve through rootfs
+    exec env PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      ${fex}/bin/FEXInterpreter "$ROOTFS_BASH" -c "$*"
+  '';
+
   # Diagnostic script for debugging FEX issues on the device
   fex-check = pkgs.writeShellScriptBin "fex-check" ''
     echo "FEX-Emu Diagnostics"
@@ -322,6 +349,7 @@ in {
     fex
     fex-rootfs-setup
     fex-config-setup
+    fex-rootfs-run
     fex-check
     pkgs.squashfsTools  # for rootfs images
     pkgs.file           # for fex-check diagnostics
